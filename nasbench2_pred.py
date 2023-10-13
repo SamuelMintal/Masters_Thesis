@@ -23,14 +23,17 @@ from foresight.dataset import *
 from foresight.weight_initializers import init_net
 
 def get_num_classes(args):
+    """
+    Returns 10  for Cifar 10
+            100 for Cifar 100
+            120 for ImageNet16-120
+    """
     return 100 if args.dataset == 'cifar100' else 10 if args.dataset == 'cifar10' else 120
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Zero-cost Metrics for NAS-Bench-201')
-    parser.add_argument('--api_loc', default='data/NAS-Bench-201-v1_0-e61699.pth',
-                        type=str, help='path to API')
-    parser.add_argument('--outdir', default='./',
-                        type=str, help='output directory')
+    parser.add_argument('--api_loc', default='data/NAS-Bench-201-v1_0-e61699.pth', type=str, help='path to API')
+    parser.add_argument('--outdir', default='./', type=str, help='output directory')
     parser.add_argument('--init_w_type', type=str, default='none', help='weight initialization (before pruning) type [none, xavier, kaiming, zero]')
     parser.add_argument('--init_b_type', type=str, default='none', help='bias initialization (before pruning) type [none, xavier, kaiming, zero]')
     parser.add_argument('--batch_size', default=64, type=int)
@@ -40,12 +43,14 @@ def parse_arguments():
     parser.add_argument('--dataload', type=str, default='random', help='random or grasp supported')
     parser.add_argument('--dataload_info', type=int, default=1, help='number of batches to use for random dataload or number of samples per class for grasp dataload')
     parser.add_argument('--seed', type=int, default=42, help='pytorch manual seed')
-    parser.add_argument('--write_freq', type=int, default=1, help='frequency of write to file')
+    parser.add_argument('--write_freq', type=int, default=10, help='frequency of write to file')
     parser.add_argument('--start', type=int, default=0, help='start index')
     parser.add_argument('--end', type=int, default=0, help='end index')
     parser.add_argument('--noacc', default=False, action='store_true', help='avoid loading NASBench2 api an instead load a pickle file with tuple (index, arch_str)')
     args = parser.parse_args()
+
     args.device = torch.device("cuda:"+str(args.gpu) if torch.cuda.is_available() else "cpu")
+
     return args
 
 if __name__ == '__main__':
@@ -61,19 +66,24 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     
+    # Returns pytorch DataLoader class which return random transformed images
     train_loader, val_loader = get_cifar_dataloaders(args.batch_size, args.batch_size, args.dataset, args.num_data_workers)
-
+    
+    # Here the results will be accumulated before saving into memory
     cached_res = []
+    
+    # Create path for the output file which contains experiment data
     pre='cf' if 'cifar' in args.dataset else 'im'
     pfn=f'nb2_{pre}{get_num_classes(args)}_seed{args.seed}_dl{args.dataload}_dlinfo{args.dataload_info}_initw{args.init_w_type}_initb{args.init_b_type}.p'
     op = os.path.join(args.outdir,pfn)
 
-    
+    # Set highest index of architecture for which to compute the results
     args.end = len(api) if args.end == 0 else args.end
 
-    #loop over nasbench2 archs
+    # Loop over NasBench201 architectures
     for i, arch_str in enumerate(api):
 
+        # Index start/end enforces
         if i < args.start:
             continue
         if i >= args.end:
@@ -84,6 +94,7 @@ if __name__ == '__main__':
         net = nasbench2.get_model_from_arch_str(arch_str, get_num_classes(args))
         net.to(args.device)
 
+        # When init_w_type and init_b_type are None this does nothing
         init_net(net, args.init_w_type, args.init_b_type)
         
         arch_str2 = nasbench2.get_arch_str_from_model(net)
@@ -106,15 +117,15 @@ if __name__ == '__main__':
             valacc   = info['valid-accuracy']
             testacc  = info['test-accuracy']
         
-            res['trainacc']=trainacc
-            res['valacc']=valacc
-            res['testacc']=testacc
+            res['trainacc'] = trainacc
+            res['valacc']   = valacc
+            res['testacc']  = testacc
         
         #print(res)
         cached_res.append(res)
 
-        #write to file
-        if i % args.write_freq == 0 or i == len(api)-1 or i == 10:
+        # Write cached results into file
+        if ((i + 1) % args.write_freq == 0) or (i == len(api) - 1):
             print(f'writing {len(cached_res)} results to {op}')
             pf=open(op, 'ab')
             for cr in cached_res:
