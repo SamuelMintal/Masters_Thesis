@@ -185,6 +185,41 @@ class Exp4_Extrapolator(LearningCurveExtrapolator):
         super().__init__('Exp4_Extrapolator', func, [c, a, b, alfa])
 
 
+class Janoschek_Extrapolator(LearningCurveExtrapolator):
+    def __init__(self) -> None:
+
+        alfa = tf.Variable(1.0)
+        beta = tf.Variable(1.0)
+        k = tf.Variable(1.0)
+        delta = tf.Variable(1.0)    
+
+        func = lambda x: alfa - (alfa - beta) * (np.e ** (- k * (x ** delta)))
+
+        super().__init__('Janoschek_Extrapolator', func, [beta, k, delta, alfa])
+
+class Weibull_Extrapolator(LearningCurveExtrapolator):
+    def __init__(self) -> None:
+
+        alfa = tf.Variable(1.0)
+        beta = tf.Variable(1.0)
+        k = tf.Variable(1.0)
+        delta = tf.Variable(1.0)    
+
+        func = lambda x: alfa - (alfa - beta) * (np.e ** (- ((k * x) ** delta)))
+
+        super().__init__('Weibull_Extrapolator', func, [beta, k, delta, alfa])
+
+class Ilog2_Extrapolator(LearningCurveExtrapolator):
+    def __init__(self) -> None:
+
+        a = tf.Variable(1.0)
+        c = tf.Variable(1.0)
+
+        func = lambda x: c - (a / np.log(x))
+
+        super().__init__('Ilog2_Extrapolator', func, [a, c])
+
+
 ##############################################
 ### Learning Curve Extrapolators Ensembler ###
 ##############################################
@@ -294,7 +329,7 @@ if __name__ == '__main__':
     val_accs = arch_i_data['val_accs']
 
 
-    #test_extrapolator(val_accs, Pow4_Extrapolator())
+    test_extrapolator(val_accs, Pow4_Extrapolator())
     #exit()
     test_ensembler(
         val_accs, 
@@ -306,7 +341,10 @@ if __name__ == '__main__':
                 LogPower(),
                 Pow4_Extrapolator(),
                 MMF_Extrapolator(),
-                Exp4_Extrapolator()
+                Exp4_Extrapolator(),
+                Janoschek_Extrapolator(),
+                Weibull_Extrapolator(),
+                Ilog2_Extrapolator()
             ]
         )
     )
