@@ -3,6 +3,8 @@ from time import time
 import tensorflow as tf
 import numpy as np
 
+from utils import load_data
+
 class LearningCurveExtrapolator:
     def __init__(self, name: str, func, var_list: list[tf.Variable], lr: float = 0.05) -> None:
         """
@@ -175,7 +177,7 @@ class MMF_Extrapolator(LearningCurveExtrapolator):
 class Exp4_Extrapolator(LearningCurveExtrapolator):
     def __init__(self) -> None:
 
-        c = tf.Variable(1.0)
+        c = tf.Variable(70.0)
         a = tf.Variable(1.0)
         b = tf.Variable(1.0)
         alfa = tf.Variable(1.0)    
@@ -219,6 +221,51 @@ class Ilog2_Extrapolator(LearningCurveExtrapolator):
 
         super().__init__('Ilog2_Extrapolator', func, [a, c])
 
+##########################
+### Mine extrapolators ###
+##########################
+
+class LogShiftScale_Extrapolator(LearningCurveExtrapolator):
+    """
+    is equivalent to: scale * log(inside_scale * x + inside_shift) + shift
+    """
+    def __init__(self) -> None:
+
+        scale = tf.Variable(1.0)
+        shift = tf.Variable(0.0)
+
+        inside_scale = tf.Variable(1.0)
+        inside_shift = tf.Variable(0.0)
+
+        func = lambda x: scale * tf.math.log(inside_scale * x + inside_shift) + shift
+
+        super().__init__('LogShiftScale_Extrapolator', func, [scale, shift, inside_scale, inside_shift])
+
+class LogAllFree_Extrapolator(LearningCurveExtrapolator):
+    """
+    After succes of LogShiftScale_Extrapolator, we decided to make it even more free with addition of:
+        1. (kx) ** power instead of having only x
+        2. dividing it whole by (division_scale * (x ** division_pow) + divison_shift)
+
+    is equivalent to: (scale * log(inside_scale * (k_inside * x) ** inside_pow + inside_shift) + shift) / (division_scale * (x ** division_pow) + divison_shift)
+    """
+    def __init__(self) -> None:
+
+        scale = tf.Variable(1.0)
+        shift = tf.Variable(0.0)
+
+        inside_scale = tf.Variable(1.0)
+        inside_shift = tf.Variable(0.0)
+        inside_pow = tf.Variable(1.0)
+        inside_k = tf.Variable(1.0)
+
+        division_scale = tf.Variable(0.0)
+        division_pow   = tf.Variable(0.0)
+        divison_shift  = tf.Variable(1.0)
+
+        func = lambda x: (scale * tf.math.log(inside_scale * ((inside_k * x) ** inside_pow) + inside_shift) + shift) / (division_scale * (x ** division_pow) + divison_shift)
+
+        super().__init__('LogAllFree_Extrapolator', func, [scale, shift, inside_scale, inside_shift, inside_pow, inside_k, division_scale, division_pow, divison_shift])
 
 ##############################################
 ### Learning Curve Extrapolators Ensembler ###
@@ -273,27 +320,29 @@ def test_ensembler(data, lcee: LearningCurveExtrapolatorsEnsembler, train_on_fir
 
     lcee.fit_extrapolators(train_data, time_seconds=60)
 
-    plt.plot(epochs, data, label='Ground truth')
-    plt.plot(epochs, [lcee.predict_avg(i) for i in epochs], label='Ensembler average')
-
     for lce in lcee.extrapolators:
         plt.plot(epochs, [lce.predict(i) for i in epochs], label=lce.get_name())
-    
-    plt.axvline(train_on_first, color='red')
+
+    plt.plot(epochs, data, label='Ground truth')
+    plt.plot(epochs, [lcee.predict_avg(i) for i in epochs], label='Ensembler average', color='black')
+
+
+    plt.axvline(train_on_first, color='black')
     plt.legend()
     plt.show()
+
 
 def test_extrapolator(data: list[float], extrapolator: LearningCurveExtrapolator, train_on_first: int = 20):
     train_data = data[:train_on_first]
     epochs = np.array(range(len(data))) + 1
 
-    variables_progress = extrapolator.fit_data(train_data, time_seconds=60, return_variables_progress=True)
+    variables_progress = extrapolator.fit_data(train_data, time_seconds=1800, return_variables_progress=True)
     
     # Plot how the predicted curve compares to the original
     plt.plot(epochs, data, label='Ground truth')
     plt.plot(epochs, [extrapolator.predict(i) for i in epochs], label=extrapolator.get_name())
 
-    plt.axvline(train_on_first, color='red')
+    plt.axvline(train_on_first, color='black')
     plt.legend()
     plt.show()
 
@@ -308,29 +357,20 @@ def test_extrapolator(data: list[float], extrapolator: LearningCurveExtrapolator
 
 
 if __name__ == '__main__':
-    from ast import literal_eval
-    import os
-
-    import pandas as pd
     import matplotlib.pyplot as plt
 
-    CLEAN_DATA_PATH = os.path.join('___my_code', '_clean_all_merged.csv')
-    CONVERT_TO_LIST_COLUMNS = ['train_accs', 'val_accs']
-    ARCH_INDEX = 1
-
-    # Load data
-    data_df = pd.read_csv(CLEAN_DATA_PATH, index_col='arch_i')
-    for conv_to_list_col in CONVERT_TO_LIST_COLUMNS:
-        data_df[conv_to_list_col] = data_df[conv_to_list_col].apply(literal_eval)
-    data_dict = data_df.to_dict('index')
-
+    data_dict = load_data()
+    ARCH_INDEX = 0
+    
     # Get indexed arch's val accs
     arch_i_data = data_dict[ARCH_INDEX]
     val_accs = arch_i_data['val_accs']
 
 
-    test_extrapolator(val_accs, Pow4_Extrapolator())
+    test_extrapolator(val_accs, LogAllFree_Extrapolator())
+    
     #exit()
+    #"""
     test_ensembler(
         val_accs, 
         LearningCurveExtrapolatorsEnsembler(
@@ -344,7 +384,10 @@ if __name__ == '__main__':
                 Exp4_Extrapolator(),
                 Janoschek_Extrapolator(),
                 Weibull_Extrapolator(),
-                Ilog2_Extrapolator()
+                Ilog2_Extrapolator(),
+                LogShiftScale_Extrapolator(),
+                LogAllFree_Extrapolator()
             ]
         )
     )
+    #"""
