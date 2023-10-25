@@ -38,6 +38,20 @@ class LearningCurveExtrapolator:
         """
         return self.name
     
+    def _mean_abs_error(self, predictions: list[float], targets: list[float]) -> float:
+        """
+        Returns mean absolute error given predictions and targets
+        """
+        assert len(predictions) == len(targets)
+        mae = 0
+
+        for pred, targ in zip(predictions, targets):
+            mae += abs(pred - targ)
+
+        return mae / len(predictions)
+        
+
+
     def fit_data(self, data: list[float], time_seconds: int = None, num_epochs: int = None, return_variables_progress: bool = False):
         """
         Fits the function to the supplied data.
@@ -51,9 +65,13 @@ class LearningCurveExtrapolator:
         time_seconds, num_epochs : int
             ALWAYS SPECIFIY ONLY ONE! 
             Selects until when the fitting will take place.
+
+        return_variables_progress : bool
+            If True functions returns dict[str, list[float]] of variables values progress and MAE curve of the fit
         """
         if return_variables_progress:
             progress_dict = {i: [] for i in range(len(self.var_list))}
+            mae_progress = []
 
         # If criterium is time
         if time_seconds is not None:
@@ -63,6 +81,7 @@ class LearningCurveExtrapolator:
                 self._fit_data_epoch(data)
                 if return_variables_progress:
                     self._append_variables_state(progress_dict)
+                    mae_progress.append(self._mean_abs_error([self.predict(e) for e in range(1, len(data) + 1)], data))
 
         # Else if the criterium is number of epochs
         elif num_epochs is not None:
@@ -71,13 +90,14 @@ class LearningCurveExtrapolator:
                 self._fit_data_epoch(data)
                 if return_variables_progress:
                     self._append_variables_state(progress_dict)
+                    mae_progress.append(self._mean_abs_error([self.predict(e) for e in range(1, len(data) + 1)], data))
 
         # If neither variable was specified...
         else:
             raise ValueError('Specify one of time_seconds or num_epochs')
 
         if return_variables_progress:
-            return progress_dict
+            return progress_dict, mae_progress
 
 
     def _append_variables_state(self, var_dict: dict[str, list[float]]):
@@ -278,7 +298,7 @@ class LearningCurveExtrapolatorsEnsembler:
 
     def fit_extrapolators(self, data: list[float], time_seconds: int = None, num_epochs: int = None) -> None:
         """
-        Fits all the extrapolators
+        Fits all the extrapolators each for `time_seconds` seconds
         """
 
         for extrapolator in self.extrapolators:
@@ -293,7 +313,7 @@ class LearningCurveExtrapolatorsEnsembler:
                 raise ValueError('Specify one of time_seconds or num_epochs')
 
 
-    def predict_avg(self, epoch: int):
+    def predict_avg(self, epoch: int) -> float:
         """
         Returns average of all learning curve extrapolators predictions
         """
@@ -332,31 +352,60 @@ def test_ensembler(data, lcee: LearningCurveExtrapolatorsEnsembler, train_on_fir
     plt.show()
 
 
-def test_extrapolator(data: list[float], extrapolator: LearningCurveExtrapolator, train_on_first: int = 20):
+def test_extrapolator(data: list[float], extrapolator: LearningCurveExtrapolator, train_on_first: int = 20, time_seconds: int = 60):
     train_data = data[:train_on_first]
     epochs = np.array(range(len(data))) + 1
 
-    variables_progress = extrapolator.fit_data(train_data, time_seconds=1800, return_variables_progress=True)
+    variables_progress, mae_progress = extrapolator.fit_data(train_data, time_seconds=time_seconds, return_variables_progress=True)
+    training_epochs = np.array(list(range(len(mae_progress)))) + 1
     
-    # Plot how the predicted curve compares to the original
-    plt.plot(epochs, data, label='Ground truth')
-    plt.plot(epochs, [extrapolator.predict(i) for i in epochs], label=extrapolator.get_name())
+    fig, axes = plt.subplots(1, 3, layout='constrained', figsize=(20, 5))
 
-    plt.axvline(train_on_first, color='black')
-    plt.legend()
-    plt.show()
+
+
+    # Plot how the predicted curve compares to the original
+    axes[0].plot(epochs, data, label='Ground truth')
+    axes[0].plot(epochs, [extrapolator.predict(i) for i in epochs], label=extrapolator.get_name())
+
+    axes[0].axvline(train_on_first, color='black')
+
+    axes[0].set_title(f'Extrapolator {extrapolator.get_name()} performance against target curve')
+    axes[0].set_ylabel('Validation accuracy [%]')
+    axes[0].set_xlabel('Predicted epoch')
+    axes[0].legend()
 
 
     # Plot variables progress
     for k, v in variables_progress.items():
-        training_epochs = np.array(list(range(len(v)))) + 1
-        plt.plot(training_epochs, v, label=f'Progress of variable {k}')
+        axes[1].plot(training_epochs, v, label=f'Progress of variable {k}')
 
-    plt.legend()
-    plt.show()
+    axes[1].set_title('Variable values throughout training epochs')
+    axes[1].set_ylabel('Value')
+    axes[1].set_xlabel('Training epoch')
+    axes[1].legend()
+
+
+
+    # Plot MAE progress
+    axes[2].plot(training_epochs, mae_progress)
+    axes[2].set_title('MAE progress throughout training epochs')
+    axes[2].set_ylabel('MAE')
+    axes[2].set_xlabel('Training epoch')
+
+    plt.savefig(os.path.join('Extrapolators_curves', f'curves_of_{extrapolator.get_name()}'))
+    #plt.show()
 
 
 if __name__ == '__main__':
+    """
+
+    The question in pretraining the extrapolators.
+
+    To how long part is given as training data, as it's shaped oposed to the rest of the learning curve
+    Can change which extrapolators are worse or better due to theyr inherit drop off/exponential growth characteristics....
+
+    """
+    import os
     import matplotlib.pyplot as plt
 
     data_dict = load_data()
@@ -366,28 +415,33 @@ if __name__ == '__main__':
     arch_i_data = data_dict[ARCH_INDEX]
     val_accs = arch_i_data['val_accs']
 
+    def get_fresh_extrapolators() -> list[LearningCurveExtrapolator]:
+        return [
+            VaporPressure_Extrapolator(), 
+            Pow3_Extrapolator(), 
+            LogLogLinear_Extrapolator(),
+            LogPower(),
+            Pow4_Extrapolator(),
+            MMF_Extrapolator(),
+            Exp4_Extrapolator(),
+            Janoschek_Extrapolator(),
+            Weibull_Extrapolator(),
+            Ilog2_Extrapolator(),
+            LogShiftScale_Extrapolator(),
+            LogAllFree_Extrapolator()
+        ]
 
-    test_extrapolator(val_accs, LogAllFree_Extrapolator())
+    extrapolators_to_test = get_fresh_extrapolators()
+    for extrapolator in extrapolators_to_test:
+        test_extrapolator(val_accs, extrapolator, time_seconds=180)
+        print(f'Done {extrapolator.get_name()}')
     
     #exit()
-    #"""
+    """
     test_ensembler(
         val_accs, 
         LearningCurveExtrapolatorsEnsembler(
-            [
-                VaporPressure_Extrapolator(), 
-                Pow3_Extrapolator(), 
-                LogLogLinear_Extrapolator(),
-                LogPower(),
-                Pow4_Extrapolator(),
-                MMF_Extrapolator(),
-                Exp4_Extrapolator(),
-                Janoschek_Extrapolator(),
-                Weibull_Extrapolator(),
-                Ilog2_Extrapolator(),
-                LogShiftScale_Extrapolator(),
-                LogAllFree_Extrapolator()
-            ]
+            get_fresh_extrapolators()
         )
     )
     #"""

@@ -9,7 +9,7 @@ class ArchitectureEncoder:
 
         # Dictionary that maps all possible operation strings we can find
         # in NasBench201 to it's number. Taken from code from Paper 'Zero-Cost Proxies for Lightweight NAS'
-        self._opname_to_num = {
+        self._opname_to_opnum = {
             'none': 0,
             'skip_connect': 1,
             'nor_conv_1x1': 2,
@@ -17,9 +17,9 @@ class ArchitectureEncoder:
             'avg_pool_3x3': 4
         }
 
-        # Inverse dict of the `self._opname_to_num`
-        self._num_to_opname = {
-            v: k for (k, v) in self._opname_to_num.items()
+        # Inverse dict of the `self._opname_to_opnum`
+        self._opnum_to_opname = {
+            v: k for (k, v) in self._opname_to_opnum.items()
         }
         
     def arch_str_to_standart_encoding(self, arch_str: int) -> list[int]:
@@ -63,7 +63,7 @@ class ArchitectureEncoder:
         # Remove '~n' parts
         edges = [edge.split('~')[0] for edge in edges]
 
-        standart_encoding = [self._opname_to_num[edge] for edge in edges]
+        standart_encoding = [self._opname_to_opnum[edge] for edge in edges]
         return standart_encoding
     
     def standart_encoding_to_arch_str(self, std_encoding: list[int]) -> str:
@@ -72,7 +72,7 @@ class ArchitectureEncoder:
         """
 
         # Go from list of operation indices to list of operation names
-        std_encoding_opnames = [self._num_to_opname[encoded_op] for encoded_op in std_encoding]
+        std_encoding_opnames = [self._opnum_to_opname[encoded_op] for encoded_op in std_encoding]
         
         to_1st_node = f'|{std_encoding_opnames[0]}~0|'
         to_2nd_node = f'|{std_encoding_opnames[1]}~0|{std_encoding_opnames[2]}~1|'
@@ -91,6 +91,96 @@ class ArchitectureEncoder:
 
     def convert_from_arch_string(self, arch_str: str) -> list[int]:
         """
+        Main function of this class.
+
         Returns encoding of a architecture defined by provided NasBench 201 architecture string.
         """
         return self.convert_from_standart_encoding(self.arch_str_to_standart_encoding(arch_str))
+    
+
+#########################
+### Concrete Encoders ###
+#########################
+
+class StandartArchitecture_Encoder(ArchitectureEncoder):
+    """
+    Encodes into standart encoding described in `arch_str_to_standart_encoding` function.
+    """
+    def __init__(self) -> None:
+        super().__init__()
+
+    def convert_from_standart_encoding(self, std_encoding: list[int]) -> list[int]:
+        return std_encoding
+
+class OneHotOperation_Encoder(ArchitectureEncoder):
+    """
+    Encodes architecture as a concatenation of one hot encodings of operations.
+
+    e.g. Converts architecture: 
+        |avg_pool_3x3~0|+|nor_conv_1x1~0|skip_connect~1|+|nor_conv_1x1~0|skip_connect~1|skip_connect~2| 
+    to encoding:
+        [0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0]
+
+    Notes: output vector is too long, to be precise it has always length of 5_ops * 6_edges == 30, and always contains only 6x 1. Therefore everytime
+    Only wights emerging from 6 input elements are being used and therefore we might need much more architectures to train performance predictor
+    on this encoding then if we used some other, denser, encoding -> autoencoder overfitting on architecture encoding might be other option...
+    """
+       
+    def __init__(self) -> None:
+        super().__init__()
+
+        self._opnum_to_onehot = {
+            0: [1, 0, 0, 0, 0],
+            1: [0, 1, 0, 0, 0],
+            2: [0, 0, 1, 0, 0],
+            3: [0, 0, 0, 1, 0],
+            4: [0, 0, 0, 0, 1]
+        }
+
+    def convert_from_standart_encoding(self, std_encoding: list[int]) -> list[int]:
+        one_hot_encoding = []
+        for op_num in std_encoding:
+            one_hot_encoding.extend(self._opnum_to_onehot[op_num].copy())
+
+        return one_hot_encoding
+    
+
+# TODO
+# Implement following Encoders...
+
+class Path_Encoder(ArchitectureEncoder):
+    """
+    In NasBench 201 cells we have [ENTER AMOUNT HERE] of paths of lengths 2.
+    """
+    def convert_from_standart_encoding(self, std_encoding: list[int]) -> list[int]:
+        pass
+
+
+class AutoEncoder_Encoder(ArchitectureEncoder):
+    """
+    This encoder returns the learned representation of autoencoder which is trained on it for short amount of time.
+    """
+    def convert_from_standart_encoding(self, std_encoding: list[int]) -> list[int]:
+        pass
+
+
+if __name__ == '__main__':
+    from utils import load_data
+
+    data_dict = load_data()
+    arch_enc = ArchitectureEncoder()
+    one_hot_arch_enc = OneHotOperation_Encoder()
+
+    failed_conversions = 0
+    # For all architectures
+    for arch_i, arch_data in data_dict.items():
+        arch_str = arch_data['arch_str']
+        arch_str_from_encoder = arch_enc.standart_encoding_to_arch_str(arch_enc.arch_str_to_standart_encoding(arch_str))
+
+        if arch_str != arch_str_from_encoder:
+            failed_conversions += 1
+            print(f'conversion of {arch_str} failed, as we got {arch_str_from_encoder} instead')
+
+        #print(f'One hot encoder converted architecture {arch_str} to {one_hot_arch_enc.convert_from_arch_string(arch_str)} with len = {len(one_hot_arch_enc.convert_from_arch_string(arch_str))}')
+
+    print(f'Number of failed conversions is {failed_conversions}')
