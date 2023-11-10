@@ -69,11 +69,20 @@ def calc_spearman_rank_correlation_coef(data_real: dict[str, float], data_predic
     sp_rank_coef = 1 - (6 * np.sum(ranks_deltas_squared)) / (n * ((n ** 2) - 1))
 
     if also_plot:
-        
+        # Sort them by architecture so we can plot them (they are matched by architecture by index)
         data_real_plotting = sort_tuples_by_archs(list(data_real.items()))
         data_predicted_plotting = sort_tuples_by_archs(list(data_predicted.items()))
+
+        # Plot comaprison of real and predicted validation accuracies
+        real_valaccs = [valacc for (arch, valacc) in data_real_plotting]
+        pred_valaccs = [valacc for (arch, valacc) in data_predicted_plotting]
+        plt.scatter(real_valaccs, pred_valaccs)
         
-        plt.scatter([valacc for (arch, valacc) in data_real_plotting], [valacc for (arch, valacc) in data_predicted_plotting])
+        # Plot y=x line
+        min_coord = min([min(real_valaccs), min(pred_valaccs)])
+        max_coord = max([max(real_valaccs), max(pred_valaccs)])
+        plt.plot([min_coord, max_coord], [min_coord, max_coord], color='black')
+
         plt.xlabel('Real validation accuracy of architectures [%]')
         plt.ylabel('Predicted validation accuracy of architectures [%]')
         plt.title(f'Real vs Predicted validation accuracy of architectures (Spearman = {sp_rank_coef})')

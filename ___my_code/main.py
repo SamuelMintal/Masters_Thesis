@@ -77,7 +77,7 @@ class RunConfig:
 
 
 
-def get_training_data_for_predictor(config: RunConfig, verbose: bool = True) -> tuple[list[list[float]], list[float]]:
+def get_training_data_for_predictor(config: RunConfig, verbose: bool = True, add_arch_i_and_real_val_acc: bool = False) -> tuple[list[list[float]], list[float]]:
     """
     Creates and returns training data for performance predictor
     """
@@ -86,6 +86,8 @@ def get_training_data_for_predictor(config: RunConfig, verbose: bool = True) -> 
 
     # Here we will collect data for predictor's training
     data_xs, data_ys = [], []
+    if add_arch_i_and_real_val_acc:
+        data_arch_i, data_real_valaccs = [], []
 
     beg_training_time = time()
     while time() - beg_training_time < config.get_expected_time_for_perf_perdictor_data_gathering():
@@ -102,10 +104,18 @@ def get_training_data_for_predictor(config: RunConfig, verbose: bool = True) -> 
         data_xs.append(data_x)
         data_ys.append(data_y)
 
+        if add_arch_i_and_real_val_acc:
+            data_arch_i.append(arch_i)
+            data_real_valaccs.append(config.data_getter.get_real_val_acc_of_arch(arch_i))
+
     if verbose:    
         print(f'We expected to get {config.num_wanted_architectures} datapoints and got {len(data_xs)}.')
 
-    return data_xs, data_ys
+    if add_arch_i_and_real_val_acc:
+        return data_xs, data_ys, data_arch_i, data_real_valaccs
+    else:
+        return data_xs, data_ys
+
 
 
 def main(config: RunConfig):
@@ -210,8 +220,21 @@ def main(config: RunConfig):
 
 
 def test_training_data(config: RunConfig):
+    np.random.seed(420)
+    data_xs, data_ys, data_arch_i, data_real_valaccs = get_training_data_for_predictor(config, add_arch_i_and_real_val_acc=True)
     
-    #calc_spearman_rank_correlation_coef
+    #from sklearn.ensemble import RandomForestRegressor
+    #regr = RandomForestRegressor(max_depth=2, random_state=0)
+    #regr.fit(data_xs, data_ys)
+
+    #predicted_val_accs = regr.predict(data_xs)
+
+    data_real = {arch_i: real_valacc for (arch_i, real_valacc) in zip(data_arch_i, data_real_valaccs)}
+    data_predicted = {arch_i: pred_valacc for (arch_i, pred_valacc) in zip(data_arch_i, data_ys)}
+    
+    # TODO check if it really works
+    # https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient
+    srcc = calc_spearman_rank_correlation_coef(data_real, data_predicted, also_plot=True)
     
 
 
@@ -226,10 +249,9 @@ if __name__ == '__main__':
         ['jacob_cov', 'grad_norm']
     )
 
-
     config = RunConfig(
         epochs_trained_per_arch_for_extrapolatos=20,
-        secs_per_extrapolator_fitting=10,
+        secs_per_extrapolator_fitting=40,
         num_wanted_architectures=10,
         get_lc_extrapolators_ensembler=get_lc_extrapolators_ensembler,
         data_getter=data_getter,
@@ -239,4 +261,4 @@ if __name__ == '__main__':
     )
 
     test_training_data(config)
-    main(config)
+    #main(config)
