@@ -296,6 +296,12 @@ class LearningCurveExtrapolatorsEnsembler:
         self.extrapolators: list[LearningCurveExtrapolator] = extrapolators
         self.verbose: bool = verbose
 
+    def show_extrapolators_list(self) -> list[LearningCurveExtrapolator]:
+        """
+        Returns list of lc extrapolators this Ensembler uses
+        """
+        return self.extrapolators
+
     def fit_extrapolators(self, data: list[float], time_seconds: int = None, num_epochs: int = None) -> None:
         """
         Fits all the extrapolators each for `time_seconds` seconds

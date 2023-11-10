@@ -97,6 +97,15 @@ class ArchitectureEncoder:
         """
         return self.convert_from_standart_encoding(self.arch_str_to_standart_encoding(arch_str))
     
+    def get_encoding_length(self) -> int:
+        """
+        Returns length of the architecture encodings
+        """
+        sample_arch_str = '|avg_pool_3x3~0|+|nor_conv_1x1~0|skip_connect~1|+|nor_conv_1x1~0|skip_connect~1|skip_connect~2|'
+        encoded_arch = self.convert_from_arch_string(sample_arch_str)
+        
+        return len(encoded_arch)
+    
 
 #########################
 ### Concrete Encoders ###
