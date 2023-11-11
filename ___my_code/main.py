@@ -232,7 +232,6 @@ def test_training_data(config: RunConfig):
     data_real = {arch_i: real_valacc for (arch_i, real_valacc) in zip(data_arch_i, data_real_valaccs)}
     data_predicted = {arch_i: pred_valacc for (arch_i, pred_valacc) in zip(data_arch_i, data_ys)}
     
-    # TODO check if it really works
     # https://en.wikipedia.org/wiki/Spearman%27s_rank_correlation_coefficient
     srcc = calc_spearman_rank_correlation_coef(data_real, data_predicted, also_plot=True)
     
@@ -242,7 +241,7 @@ def test_training_data(config: RunConfig):
 if __name__ == '__main__':
 
     def get_lc_extrapolators_ensembler():
-        return LearningCurveExtrapolatorsEnsembler([LogShiftScale_Extrapolator(), VaporPressure_Extrapolator()])
+        return LearningCurveExtrapolatorsEnsembler([LogShiftScale_Extrapolator(), VaporPressure_Extrapolator(), Pow4_Extrapolator()])
     
     data_getter = DataGetter(
         OneHotOperation_Encoder(),
@@ -251,8 +250,8 @@ if __name__ == '__main__':
 
     config = RunConfig(
         epochs_trained_per_arch_for_extrapolatos=20,
-        secs_per_extrapolator_fitting=40,
-        num_wanted_architectures=10,
+        secs_per_extrapolator_fitting=20,
+        num_wanted_architectures=20,
         get_lc_extrapolators_ensembler=get_lc_extrapolators_ensembler,
         data_getter=data_getter,
         POP_SIZE=10,

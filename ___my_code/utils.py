@@ -81,11 +81,12 @@ def calc_spearman_rank_correlation_coef(data_real: dict[str, float], data_predic
         # Plot y=x line
         min_coord = min([min(real_valaccs), min(pred_valaccs)])
         max_coord = max([max(real_valaccs), max(pred_valaccs)])
-        plt.plot([min_coord, max_coord], [min_coord, max_coord], color='black')
+        plt.plot([min_coord, max_coord], [min_coord, max_coord], color='black', label='y=x')
 
         plt.xlabel('Real validation accuracy of architectures [%]')
         plt.ylabel('Predicted validation accuracy of architectures [%]')
-        plt.title(f'Real vs Predicted validation accuracy of architectures (Spearman = {sp_rank_coef})')
+        plt.title(f'Real vs Predicted validation accuracy of architectures (Spearman = {round(sp_rank_coef, 2)})')
+        plt.legend()
         plt.show()
 
     return sp_rank_coef

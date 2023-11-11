@@ -6,7 +6,7 @@ import numpy as np
 from utils import load_data
 
 class LearningCurveExtrapolator:
-    def __init__(self, name: str, func, var_list: list[tf.Variable], lr: float = 0.05) -> None:
+    def __init__(self, name: str, func, var_list: list[tf.Variable], var_names: list[str], lr: float = 0.05) -> None:
         """
         Contructs Learning Curve Extrapolator for concrete function.
 
@@ -21,6 +21,9 @@ class LearningCurveExtrapolator:
         var_list : list[tf.Variable]
             list of tf.Variables which are in `func` and will be optimized during the fitting.
 
+        var_names : list[str]
+            names of the variables in the `var_list` (Must be index matched)
+
         lr : float, defualt=0.001
             Learning rate which the Adam optimizer will use during the fitting.
         """
@@ -28,6 +31,7 @@ class LearningCurveExtrapolator:
 
         self.func = func
         self.var_list = var_list
+        self.var_names = var_names
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
 
@@ -70,7 +74,7 @@ class LearningCurveExtrapolator:
             If True functions returns dict[str, list[float]] of variables values progress and MAE curve of the fit
         """
         if return_variables_progress:
-            progress_dict = {i: [] for i in range(len(self.var_list))}
+            progress_dict = {var_name: [] for var_name in self.var_names}
             mae_progress = []
 
         # If criterium is time
@@ -104,12 +108,12 @@ class LearningCurveExtrapolator:
         """
         Appends variable state to dict with form dict[variable_index] == [1, 1.1, 1.2, 1.15, ...]
         """
-        for i in range(len(self.var_list)):
-            var_dict[i].append(self.var_list[i].numpy())
+        for i, var_name in enumerate(self.var_names):
+            var_dict[var_name].append(self.var_list[i].numpy())
 
     def _fit_data_epoch(self, data: list[float]):
         """
-        Fits data fro 1 epoch using MSE metric.
+        Fits data for 1 epoch using MSE metric.
         """ 
 
         def MSE():
@@ -129,117 +133,170 @@ class LearningCurveExtrapolator:
         return self.func(epoch)
     
 class VaporPressure_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self, 
+            a: float = 1.0, 
+            b: float = 1.0, 
+            c: float = 1.0
+        ) -> None:
 
-        a = tf.Variable(1.0)
-        b = tf.Variable(1.0)
-        c = tf.Variable(1.0)
+        a = tf.Variable(a)
+        b = tf.Variable(b)
+        c = tf.Variable(c)
 
         func = lambda x: np.e ** (a + (b / (x)) + c * np.log(x))
 
-        super().__init__('VaporPressure_Extrapolator', func, [a, b, c])
+        super().__init__('VaporPressure_Extrapolator', func, [a, b, c], ['a', 'b', 'c'])
 
 class Pow3_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            a: float = 1.0,
+            c: float = 1.0,
+            alfa: float = 1.0
+        ) -> None:
 
-        c = tf.Variable(1.0)
-        a = tf.Variable(1.0)
-        alfa = tf.Variable(1.0)    
+        c = tf.Variable(c)
+        a = tf.Variable(a)
+        alfa = tf.Variable(alfa)    
 
         func = lambda x: c - a * (x ** (- alfa))
 
-        super().__init__('Pow3_Extrapolator', func, [a, alfa, c])
+        super().__init__('Pow3_Extrapolator', func, [a, alfa, c], ['a', 'alfa', 'c'])
 
 class LogLogLinear_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            a: float = 1.0,
+            b: float = 1.0
+        ) -> None:
 
-        a = tf.Variable(1.0)
-        b = tf.Variable(1.0)
+        a = tf.Variable(a)
+        b = tf.Variable(b)
         
         func = lambda x: tf.math.log(a * np.log(x) + b)
 
-        super().__init__('LogLogLinear_Extrapolator', func, [a, b], lr=10)
+        super().__init__('LogLogLinear_Extrapolator', func, [a, b], ['a', 'b'])
 
 class LogPower(LearningCurveExtrapolator):
-    def __init__(self) -> None:
-        a = tf.Variable(1.0)
-        b = tf.Variable(1.0)
-        c = tf.Variable(1.0)
+    def __init__(
+            self,
+            a: float = 1.0,
+            b: float = 1.0,
+            c: float = 1.0
+        ) -> None:
+        a = tf.Variable(a)
+        b = tf.Variable(b)
+        c = tf.Variable(c)
 
         func = lambda x: a / (1 + ((x / (np.e ** b)) ** c))
 
-        super().__init__('LogPower_Extrapolator', func, [a, b, c])
+        super().__init__('LogPower_Extrapolator', func, [a, b, c], ['a', 'b', 'c'])
 
 class Pow4_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            c: float = 1.0,
+            a: float = 1.0,
+            b: float = 1.0,
+            alfa: float = 1.0
+        ) -> None:
 
-        c = tf.Variable(1.0)
-        a = tf.Variable(1.0)
-        b = tf.Variable(1.0)
-        alfa = tf.Variable(1.0)    
+        c = tf.Variable(c)
+        a = tf.Variable(a)
+        b = tf.Variable(b)
+        alfa = tf.Variable(alfa)    
 
         func = lambda x: c - ((a * x + b) ** (- alfa))
 
-        super().__init__('Pow4_Extrapolator', func, [c, a, b, alfa], lr=10)
+        super().__init__('Pow4_Extrapolator', func, [c, a, b, alfa], ['c', 'a', 'b', 'alfa'])
 
 class MMF_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            alfa: float = 1.0,
+            beta: float = 1.0,
+            delta: float = 1.0,
+            k: float = 1.0
+        ) -> None:
 
-        alfa = tf.Variable(1.0)    
-        beta = tf.Variable(1.0)   
-        delta = tf.Variable(1.0)
-        k = tf.Variable(1.0)   
+        alfa = tf.Variable(alfa)    
+        beta = tf.Variable(beta)   
+        delta = tf.Variable(delta)
+        k = tf.Variable(k)   
 
         func = lambda x: alfa - ((alfa - beta) / (1 + ((k * x) ** delta)))
 
-        super().__init__('MMF_Extrapolator', func, [alfa, beta, delta, k])
+        super().__init__('MMF_Extrapolator', func, [alfa, beta, delta, k], ['alfa', 'beta', 'delta', 'k'])
 
 class Exp4_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            c: float = 70.0,
+            a: float = 1.0,
+            b: float = 1.0,
+            alfa: float = 1.0
+        ) -> None:
 
-        c = tf.Variable(70.0)
-        a = tf.Variable(1.0)
-        b = tf.Variable(1.0)
-        alfa = tf.Variable(1.0)    
+        c = tf.Variable(c)
+        a = tf.Variable(a)
+        b = tf.Variable(b)
+        alfa = tf.Variable(alfa)    
 
         func = lambda x: c - (np.e ** (- a * (x ** alfa) + b))
 
-        super().__init__('Exp4_Extrapolator', func, [c, a, b, alfa])
+        super().__init__('Exp4_Extrapolator', func, [c, a, b, alfa], ['c', 'a', 'b', 'alfa'])
 
 
 class Janoschek_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            alfa: float = 1.0,
+            beta: float = 1.0,
+            k: float = 1.0,
+            delta: float = 1.0
+        ) -> None:
 
-        alfa = tf.Variable(1.0)
-        beta = tf.Variable(1.0)
-        k = tf.Variable(1.0)
-        delta = tf.Variable(1.0)    
+        alfa = tf.Variable(alfa)
+        beta = tf.Variable(beta)
+        k = tf.Variable(k)
+        delta = tf.Variable(delta)    
 
         func = lambda x: alfa - (alfa - beta) * (np.e ** (- k * (x ** delta)))
 
-        super().__init__('Janoschek_Extrapolator', func, [beta, k, delta, alfa])
+        super().__init__('Janoschek_Extrapolator', func, [beta, k, delta, alfa], ['beta', 'k', 'delta', 'alfa'])
 
 class Weibull_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            alfa: float = 1.0,
+            beta: float = 1.0,
+            k: float = 1.0,
+            delta: float = 1.0
+        ) -> None:
 
-        alfa = tf.Variable(1.0)
-        beta = tf.Variable(1.0)
-        k = tf.Variable(1.0)
-        delta = tf.Variable(1.0)    
+        alfa = tf.Variable(alfa)
+        beta = tf.Variable(beta)
+        k = tf.Variable(k)
+        delta = tf.Variable(delta)    
 
         func = lambda x: alfa - (alfa - beta) * (np.e ** (- ((k * x) ** delta)))
 
-        super().__init__('Weibull_Extrapolator', func, [beta, k, delta, alfa])
+        super().__init__('Weibull_Extrapolator', func, [beta, k, delta, alfa], ['beta', 'k', 'delta', 'alfa'])
 
 class Ilog2_Extrapolator(LearningCurveExtrapolator):
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            a: float = 1.0,
+            c: float = 1.0
+        ) -> None:
 
-        a = tf.Variable(1.0)
-        c = tf.Variable(1.0)
+        a = tf.Variable(a)
+        c = tf.Variable(c)
 
         func = lambda x: c - (a / np.log(x))
 
-        super().__init__('Ilog2_Extrapolator', func, [a, c])
+        super().__init__('Ilog2_Extrapolator', func, [a, c], ['a', 'c'])
 
 ##########################
 ### Mine extrapolators ###
@@ -249,17 +306,24 @@ class LogShiftScale_Extrapolator(LearningCurveExtrapolator):
     """
     is equivalent to: scale * log(inside_scale * x + inside_shift) + shift
     """
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            scale: float = 1.0,
+            shift: float = 0.0,
 
-        scale = tf.Variable(1.0)
-        shift = tf.Variable(0.0)
+            inside_scale: float = 1.0,
+            inside_shift: float = 0.0
+        ) -> None:
 
-        inside_scale = tf.Variable(1.0)
-        inside_shift = tf.Variable(0.0)
+        scale = tf.Variable(scale)
+        shift = tf.Variable(shift)
+
+        inside_scale = tf.Variable(inside_scale)
+        inside_shift = tf.Variable(inside_shift)
 
         func = lambda x: scale * tf.math.log(inside_scale * x + inside_shift) + shift
 
-        super().__init__('LogShiftScale_Extrapolator', func, [scale, shift, inside_scale, inside_shift])
+        super().__init__('LogShiftScale_Extrapolator', func, [scale, shift, inside_scale, inside_shift], ['scale', 'shift', 'inside_scale', 'inside_shift'])
 
 class LogAllFree_Extrapolator(LearningCurveExtrapolator):
     """
@@ -269,23 +333,36 @@ class LogAllFree_Extrapolator(LearningCurveExtrapolator):
 
     is equivalent to: (scale * log(inside_scale * (k_inside * x) ** inside_pow + inside_shift) + shift) / (division_scale * (x ** division_pow) + divison_shift)
     """
-    def __init__(self) -> None:
+    def __init__(
+            self,
+            scale: float = 1.0,
+            shift: float = 0.0,
 
-        scale = tf.Variable(1.0)
-        shift = tf.Variable(0.0)
+            inside_scale: float = 1.0,
+            inside_shift: float = 0.0,
+            inside_pow: float = 1.0,
+            inside_k: float = 1.0,
 
-        inside_scale = tf.Variable(1.0)
-        inside_shift = tf.Variable(0.0)
-        inside_pow = tf.Variable(1.0)
-        inside_k = tf.Variable(1.0)
+            division_scale: float = 0.0,
+            division_pow: float = 0.0,
+            divison_shift: float = 1.0,
+        ) -> None:
 
-        division_scale = tf.Variable(0.0)
-        division_pow   = tf.Variable(0.0)
-        divison_shift  = tf.Variable(1.0)
+        scale = tf.Variable(scale)
+        shift = tf.Variable(shift)
+
+        inside_scale = tf.Variable(inside_scale)
+        inside_shift = tf.Variable(inside_shift)
+        inside_pow = tf.Variable(inside_pow)
+        inside_k = tf.Variable(inside_k)
+
+        division_scale = tf.Variable(division_scale)
+        division_pow   = tf.Variable(division_pow)
+        divison_shift  = tf.Variable(divison_shift)
 
         func = lambda x: (scale * tf.math.log(inside_scale * ((inside_k * x) ** inside_pow) + inside_shift) + shift) / (division_scale * (x ** division_pow) + divison_shift)
 
-        super().__init__('LogAllFree_Extrapolator', func, [scale, shift, inside_scale, inside_shift, inside_pow, inside_k, division_scale, division_pow, divison_shift])
+        super().__init__('LogAllFree_Extrapolator', func, [scale, shift, inside_scale, inside_shift, inside_pow, inside_k, division_scale, division_pow, divison_shift], ['scale', 'shift', 'inside_scale', 'inside_shift', 'inside_pow', 'inside_k', 'division_scale', 'division_pow', 'divison_shift'])
 
 ##############################################
 ### Learning Curve Extrapolators Ensembler ###
@@ -439,7 +516,7 @@ if __name__ == '__main__':
 
     extrapolators_to_test = get_fresh_extrapolators()
     for extrapolator in extrapolators_to_test:
-        test_extrapolator(val_accs, extrapolator, time_seconds=180)
+        test_extrapolator(val_accs, extrapolator, time_seconds=600)
         print(f'Done {extrapolator.get_name()}')
     
     #exit()
