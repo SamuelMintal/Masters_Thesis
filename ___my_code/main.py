@@ -66,7 +66,7 @@ class RunConfig:
         process for performance predictor training will take
         """
         num_of_extrapolators_in_ensembler = len(self.get_lc_extrapolators_ensembler().show_extrapolators_list())
-        return (self.epochs_trained_per_arch_for_extrapolatos * Constants.AVG_TIME_PER_ARCH_TRAINING_EPOCH + self.secs_per_extrapolator_fitting * num_of_extrapolators_in_ensembler) * self.num_wanted_architectures
+        return (self.secs_per_extrapolator_fitting * num_of_extrapolators_in_ensembler) * self.num_wanted_architectures
     
     def get_new_lc_extrapolators_ensembler(self) -> LearningCurveExtrapolatorsEnsembler:
         """
@@ -94,7 +94,7 @@ def get_training_data_for_predictor(config: RunConfig, verbose: bool = True, add
 
         arch_i = arch_i_sampler.sample()
         if verbose:
-            print(f'Getting training data for arch_i {arch_i}')
+            print(f'Getting training data for arch_i {arch_i}. Time remaining is {round(config.get_expected_time_for_perf_perdictor_data_gathering() - (time() - beg_training_time))} seconds')
 
         data_x, data_y = config.data_getter.get_training_data_by_arch_index(
             arch_i,
@@ -250,8 +250,8 @@ if __name__ == '__main__':
 
     config = RunConfig(
         epochs_trained_per_arch_for_extrapolatos=20,
-        secs_per_extrapolator_fitting=20,
-        num_wanted_architectures=20,
+        secs_per_extrapolator_fitting=5,
+        num_wanted_architectures=10,
         get_lc_extrapolators_ensembler=get_lc_extrapolators_ensembler,
         data_getter=data_getter,
         POP_SIZE=10,
@@ -260,4 +260,4 @@ if __name__ == '__main__':
     )
 
     test_training_data(config)
-    #main(config)
+    main(config)

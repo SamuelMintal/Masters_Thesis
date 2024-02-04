@@ -19,6 +19,7 @@ import time
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
+from nas_201_api import NASBench201API as API
 
 
 from ignite.engine import Events, create_supervised_trainer, create_supervised_evaluator
@@ -42,7 +43,8 @@ def setup_experiment(net, args):
         nesterov=True)
     lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimiser, T_max=args.epochs, eta_min=0, last_epoch=-1)
 
-    train_loader, val_loader = get_cifar_dataloaders(args.batch_size, args.batch_size, args.dataset, args.num_data_workers, resize=args.img_size)
+    #train_loader, val_loader = get_cifar_dataloaders(args.batch_size, args.batch_size, args.dataset, args.num_data_workers, resize=args.img_size)
+    train_loader, val_loader = get_cifar_dataloaders(args.batch_size, args.batch_size, args.dataset, args.num_data_workers)
 
     return optimiser, lr_scheduler, train_loader, val_loader
 
@@ -54,19 +56,19 @@ def parse_arguments():
                         type=str, help='output directory')
     parser.add_argument('--outfname', default='test',
                         type=str, help='output filename')
-    parser.add_argument('--batch_size', default=2048, type=int)
-    parser.add_argument('--epochs', default=40, type=int)
-    parser.add_argument('--init_channels', default=4, type=int)
-    parser.add_argument('--img_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
+    parser.add_argument('--epochs', default=20, type=int)
+    #parser.add_argument('--init_channels', default=4, type=int)     # tieto 2 sa nezdaju
+    #parser.add_argument('--img_size', default=8, type=int)          #
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset to use [cifar10, cifar100, ImageNet16-120]')
     parser.add_argument('--gpu', type=int, default=0, help='GPU index to work on')
-    parser.add_argument('--num_data_workers', type=int, default=2, help='number of workers for dataloaders')
+    parser.add_argument('--num_data_workers', type=int, default=1, help='number of workers for dataloaders')
     parser.add_argument('--dataload', type=str, default='random', help='random or grasp supported')
     parser.add_argument('--dataload_info', type=int, default=1, help='number of batches to use for random dataload or number of samples per class for grasp dataload')
-    parser.add_argument('--start', type=int, default=5, help='start index')
+    parser.add_argument('--start', type=int, default=0, help='start index')
     parser.add_argument('--end', type=int, default=10, help='end index')
     parser.add_argument('--write_freq', type=int, default=5, help='frequency of write to file')
-    parser.add_argument('--logmeasures', action="store_true", default=False, help='add extra logging for predictive measures')
+    parser.add_argument('--logmeasures', action="store_true", default=True, help='add extra logging for predictive measures')
     args = parser.parse_args()
     args.device = torch.device("cuda:"+str(args.gpu) if torch.cuda.is_available() else "cpu")
     return args
@@ -74,29 +76,39 @@ def parse_arguments():
 
 def train_nb2():
     args = parse_arguments()
-    archs = pickle.load(open(args.api_loc,'rb'))
+
+    # Load NasBench201 API
+    api = API(args.api_loc)
+    api.verbose = False
     
     pre='cf' if 'cifar' in args.dataset else 'im'
     if args.outfname == 'test':
-        fn = f'nb2_train_{pre}{get_num_classes(args)}_r{args.img_size}_c{args.init_channels}_e{args.epochs}.p'
+        #fn = f'nb2_train_{pre}{get_num_classes(args)}_r{args.img_size}_c{args.init_channels}_e{args.epochs}.p'
+        fn = f'nb2_train_{pre}{get_num_classes(args)}_e{args.epochs}.p'
     else:
         fn = f'{args.outfname}.p'
-    op = os.path.join(args.outdir,fn)
+    op = os.path.join(args.outdir, fn)
 
-    print('outfile =',op)
+    print('outfile =', op)
     cached_res = []
 
+    available_logmeasures = ['grad_norm', 'snip', 'grasp', 'fisher', 'jacob_cov', 'plain', 'synflow']
+
     #loop over nasbench2 archs
-    for i, arch_str in enumerate(archs):
+    for i, arch_str in enumerate(api):
 
         if i < args.start:
             continue
         if i >= args.end:
             break 
 
-        res = {'idx':i, 'arch_str':arch_str, 'logmeasures':[]}
+        res = {
+            'idx': i, 
+            'arch_str': arch_str, 
+            'logmeasures':[]
+        }
 
-        net = nasbench2.get_model_from_arch_str(arch_str, get_num_classes(args), init_channels=args.init_channels)
+        net = nasbench2.get_model_from_arch_str(arch_str, get_num_classes(args))#, init_channels=args.init_channels)
         net.to(args.device)
 
         optimiser, lr_scheduler, train_loader, val_loader = setup_experiment(net, args)
@@ -109,15 +121,16 @@ def train_nb2():
             'loss': Loss(criterion)
         }, args.device)
 
-        pbar = ProgressBar()
-        pbar.attach(trainer)
+        #pbar = ProgressBar()
+        #pbar.attach(trainer)
 
         @trainer.on(Events.EPOCH_COMPLETED)
         def log_epoch(engine):
                 
             #change LR
             lr_scheduler.step()
-
+            print(f'Done epoch {engine.state.epoch}')
+            """
             #run evaluator
             evaluator.run(val_loader)
 
@@ -126,20 +139,26 @@ def train_nb2():
             avg_accuracy = metrics['accuracy']
             avg_loss = metrics['loss']
 
-            pbar.log_message(f"Validation Results - Epoch: {engine.state.epoch} Avg accuracy: {round(avg_accuracy*100,2)}% Val loss: {round(avg_loss,2)} Train loss: {round(engine.state.output,2)}")
+            #pbar.log_message(f"Validation Results - Epoch: {engine.state.epoch} Avg accuracy: {round(avg_accuracy*100,2)}% Val loss: {round(avg_loss,2)} Train loss: {round(engine.state.output,2)}")
 
             measures = {}
             if args.logmeasures:
-                measures = predictive.find_measures(net, 
-                                    train_loader, 
-                                    (args.dataload, args.dataload_info, get_num_classes(args)),
-                                    args.device)
+                measures = predictive.find_measures(
+                    net, 
+                    train_loader, 
+                    (args.dataload, args.dataload_info, get_num_classes(args)),
+                    args.device,
+                    measure_names=['grad_norm']
+                )
+
             measures['train_loss'] = engine.state.output
             measures['val_loss'] = avg_loss
             measures['val_acc'] = avg_accuracy
             measures['epoch'] = engine.state.epoch
             res['logmeasures'].append(measures)
+            #"""
 
+        #"""
         #at epoch zero
         #run evaluator
         evaluator.run(val_loader)
@@ -153,13 +172,15 @@ def train_nb2():
             measures = predictive.find_measures(net, 
                                 train_loader, 
                                 (args.dataload, args.dataload_info, get_num_classes(args)),
-                                args.device)
+                                args.device,
+                                measure_names=['grad_norm']
+                                )
         measures['train_loss'] = 0
         measures['val_loss'] = avg_loss
         measures['val_acc'] = avg_accuracy
         measures['epoch'] = 0
         res['logmeasures'].append(measures)
-
+        #"""
 
         #run training
         stime = time.time()
@@ -167,7 +188,7 @@ def train_nb2():
         etime = time.time()
 
         res['time'] = etime-stime
-
+        print(f'arch_i {i} took {etime-stime} seconds.')
         #print(res)
         cached_res.append(res)
 
