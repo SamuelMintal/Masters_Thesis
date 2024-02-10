@@ -1,5 +1,6 @@
 from time import time
 
+import matplotlib.pyplot as plt
 import tensorflow as tf
 import numpy as np
 
@@ -53,8 +54,6 @@ class LearningCurveExtrapolator:
             mae += abs(pred - targ)
 
         return mae / len(predictions)
-        
-
 
     def fit_data(self, data: list[float], time_seconds: int = None, num_epochs: int = None, return_variables_progress: bool = False):
         """
@@ -64,7 +63,7 @@ class LearningCurveExtrapolator:
         ----------
         data : list[float]
             the validation accuracies of the model. Note that at index i, we expect
-            Validation accuracy after i-th learning epoch.
+            Validation accuracy after i+1-th learning epoch.
 
         time_seconds, num_epochs : int
             ALWAYS SPECIFIY ONLY ONE! 
@@ -76,6 +75,7 @@ class LearningCurveExtrapolator:
         if return_variables_progress:
             progress_dict = {var_name: [] for var_name in self.var_names}
             mae_progress = []
+            at_x_axis = []
 
         # If criterium is time
         if time_seconds is not None:
@@ -84,15 +84,17 @@ class LearningCurveExtrapolator:
             while time() - start <= time_seconds:
                 self._fit_data_epoch(data)
                 if return_variables_progress:
+                    at_x_axis.append(time() - start)
                     self._append_variables_state(progress_dict)
                     mae_progress.append(self._mean_abs_error([self.predict(e) for e in range(1, len(data) + 1)], data))
 
         # Else if the criterium is number of epochs
         elif num_epochs is not None:
             # Train such amount of epochs
-            for _ in range(num_epochs):
+            for cur_epoch in range(num_epochs):
                 self._fit_data_epoch(data)
                 if return_variables_progress:
+                    at_x_axis.append(cur_epoch + 1)
                     self._append_variables_state(progress_dict)
                     mae_progress.append(self._mean_abs_error([self.predict(e) for e in range(1, len(data) + 1)], data))
 
@@ -101,7 +103,7 @@ class LearningCurveExtrapolator:
             raise ValueError('Specify one of time_seconds or num_epochs')
 
         if return_variables_progress:
-            return progress_dict, mae_progress
+            return at_x_axis, progress_dict, mae_progress
 
 
     def _append_variables_state(self, var_dict: dict[str, list[float]]):
@@ -130,7 +132,13 @@ class LearningCurveExtrapolator:
         """
         Predicts the validation accuracy from the validation accuracies curve supplied in fitting in supplied epoch.
         """
-        return self.func(epoch)
+        return self.func(epoch).numpy()
+    
+    def copy(self):
+        """
+        Create a copy of LearningCurveExtrapolator
+        """
+        
     
 class VaporPressure_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -146,7 +154,7 @@ class VaporPressure_Extrapolator(LearningCurveExtrapolator):
         c = tf.Variable(c)
 
         func = lambda x: np.e ** (a + (b / (x)) + c * np.log(x))
-
+        
         super().__init__('VaporPressure_Extrapolator', func, [a, b, c], ['a', 'b', 'c'], lr=lr)
 
 class Pow3_Extrapolator(LearningCurveExtrapolator):
@@ -391,7 +399,7 @@ class LearningCurveExtrapolatorsEnsembler:
 
     def fit_extrapolators(self, data: list[float], time_seconds: int = None, num_epochs: int = None) -> None:
         """
-        Fits all the extrapolators each for `time_seconds` seconds
+        Fits all the extrapolators each for `time_seconds` seconds (or `num_epochs` epochs)
         """
 
         for extrapolator in self.extrapolators:
@@ -413,18 +421,29 @@ class LearningCurveExtrapolatorsEnsembler:
         return sum([ex.predict(epoch) for ex in self.extrapolators]) / len(self.extrapolators)
     
 
-    def plot_data(self, data: list[float], trained_on_n_samples: int):
+    def plot_data(self, data: list[float], trained_on_n_samples: int, title: str, save_path: str = None):
+
+        fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
         epochs = np.array(range(len(data))) + 1
 
-        plt.plot(epochs, val_accs, label='Ground truth')
-        plt.plot(epochs, [self.predict_avg(i) for i in epochs], label='Ensembler average')
+        ax.plot(epochs, data, label='Ground truth', color='black')
+        ax.plot(epochs, [self.predict_avg(i) for i in epochs], label='Ensemble average')
 
         for lce in self.extrapolators:
-            plt.plot(epochs, [lce.predict(i) for i in epochs], label=lce.get_name())
+            ax.plot(epochs, [lce.predict(i) for i in epochs], label=lce.get_name())
             
-        plt.axvline(trained_on_n_samples, color='red')
-        plt.legend()
-        plt.show()
+        ax.axvline(trained_on_n_samples, color='black')
+
+        ax.set_xlabel('Training epoch of architecture')
+        ax.set_ylabel('Validation accuracy [%]')
+        ax.set_title(title)
+        
+        ax.legend()
+        
+        if save_path is not None:
+            plt.savefig(save_path, dpi=300)
+        else:
+            plt.show()
 
 
 def test_ensembler(data, lcee: LearningCurveExtrapolatorsEnsembler, train_on_first: int = 20):

@@ -17,7 +17,7 @@ class PopulationElement:
 
 # TODO: get those values
 class Constants:
-    AVG_TIME_PER_ARCH_TRAINING_EPOCH = 25
+    AVG_TIME_PER_ARCH_TRAINING_EPOCH = 20
 
 
 def calc_spearman_rank_correlation_coef(data_real: dict[str, float], data_predicted: dict[str, float], also_plot: bool = True) -> float:

@@ -56,8 +56,8 @@ def parse_arguments():
                         type=str, help='output directory')
     parser.add_argument('--outfname', default='test',
                         type=str, help='output filename')
-    parser.add_argument('--batch_size', default=64, type=int)
-    parser.add_argument('--epochs', default=20, type=int)
+    parser.add_argument('--batch_size', default=256, type=int) #64
+    parser.add_argument('--epochs', default=5, type=int)
     #parser.add_argument('--init_channels', default=4, type=int)     # tieto 2 sa nezdaju
     #parser.add_argument('--img_size', default=8, type=int)          #
     parser.add_argument('--dataset', type=str, default='cifar10', help='dataset to use [cifar10, cifar100, ImageNet16-120]')
@@ -67,12 +67,13 @@ def parse_arguments():
     parser.add_argument('--dataload_info', type=int, default=1, help='number of batches to use for random dataload or number of samples per class for grasp dataload')
     parser.add_argument('--start', type=int, default=0, help='start index')
     parser.add_argument('--end', type=int, default=10, help='end index')
-    parser.add_argument('--write_freq', type=int, default=5, help='frequency of write to file')
+    parser.add_argument('--write_freq', type=int, default=500, help='frequency of write to file')
     parser.add_argument('--logmeasures', action="store_true", default=True, help='add extra logging for predictive measures')
     args = parser.parse_args()
     args.device = torch.device("cuda:"+str(args.gpu) if torch.cuda.is_available() else "cpu")
     return args
 
+LAST_TIME_SAMUELMINTAL = 0
 
 def train_nb2():
     args = parse_arguments()
@@ -94,13 +95,25 @@ def train_nb2():
 
     available_logmeasures = ['grad_norm', 'snip', 'grasp', 'fisher', 'jacob_cov', 'plain', 'synflow']
 
+    # MOJ KOD
+    import random
+    random.seed(42)
+    average_times_per_epoch = []
+    arch_i_to_test = sorted([random.randint(0, len(api) - 1) for _ in range(50)])
+    print(arch_i_to_test)
+    # MOJ KOD
+
     #loop over nasbench2 archs
     for i, arch_str in enumerate(api):
 
+        if not i in arch_i_to_test:
+            continue
+        """
         if i < args.start:
             continue
         if i >= args.end:
             break 
+        """
 
         res = {
             'idx': i, 
@@ -129,7 +142,10 @@ def train_nb2():
                 
             #change LR
             lr_scheduler.step()
-            print(f'Done epoch {engine.state.epoch}')
+
+            #global LAST_TIME_SAMUELMINTAL
+            #print(f'Done epoch {engine.state.epoch}. Took {round(time.time() - LAST_TIME_SAMUELMINTAL, 2)} seconds.')
+            #LAST_TIME_SAMUELMINTAL = time.time()
             """
             #run evaluator
             evaluator.run(val_loader)
@@ -184,11 +200,15 @@ def train_nb2():
 
         #run training
         stime = time.time()
+        global LAST_TIME_SAMUELMINTAL
+        LAST_TIME_SAMUELMINTAL = stime
         trainer.run(train_loader, args.epochs)
         etime = time.time()
 
         res['time'] = etime-stime
-        print(f'arch_i {i} took {etime-stime} seconds.')
+        print(f'arch_i {i} took {etime-stime} seconds being {round((etime-stime)/args.epochs, 1)} secs/epoch on average.')
+        average_times_per_epoch.append(round((etime-stime)/args.epochs, 1))
+        print(f'making the new average of averages: {round(np.mean(average_times_per_epoch), 1)} seconds.')
         #print(res)
         cached_res.append(res)
 
