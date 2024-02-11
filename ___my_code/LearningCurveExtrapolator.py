@@ -1,4 +1,5 @@
 from time import time
+from typing import Callable
 
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -7,7 +8,7 @@ import numpy as np
 from utils import load_data
 
 class LearningCurveExtrapolator:
-    def __init__(self, name: str, func, var_list: list[tf.Variable], var_names: list[str], lr: float = 0.05) -> None:
+    def __init__(self, name: str, func, var_list: list[tf.Variable], var_names: list[str], child_class_contructor: Callable, lr: float = 0.1) -> None:
         """
         Contructs Learning Curve Extrapolator for concrete function.
 
@@ -23,9 +24,13 @@ class LearningCurveExtrapolator:
             list of tf.Variables which are in `func` and will be optimized during the fitting.
 
         var_names : list[str]
-            names of the variables in the `var_list` (Must be index matched)
+            names of the variables in the `var_list` (Must be index matched) and must match names
+            of the parameters in constructor of child class.
 
-        lr : float, defualt=0.001
+        child_class_contructor : Callable
+            Used for copying subclassed objects
+
+        lr : float, defualt=0.1
             Learning rate which the Adam optimizer will use during the fitting.
         """
         self.name = name
@@ -35,6 +40,10 @@ class LearningCurveExtrapolator:
         self.var_names = var_names
 
         self.optimizer = tf.keras.optimizers.Adam(learning_rate=lr)
+
+        # Used for copying only
+        self.child_class_contructor = child_class_contructor
+        self.lr = lr
 
 
     def get_name(self) -> str:
@@ -134,10 +143,25 @@ class LearningCurveExtrapolator:
         """
         return self.func(epoch).numpy()
     
+    def change_lr(self, new_lr: float) -> None:
+        """
+        Changes the learning rate used by this LearningCurveExtrapolator
+        """
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=new_lr)
+        self.lr = new_lr
+
+    
     def copy(self):
         """
         Create a copy of LearningCurveExtrapolator
         """
+        param_dict = {
+            var: val.numpy() for (var, val) in zip(self.var_names, self.var_list) 
+        }
+
+        return self.child_class_contructor(
+            lr=self.lr, **param_dict
+        )
         
     
 class VaporPressure_Extrapolator(LearningCurveExtrapolator):
@@ -155,7 +179,7 @@ class VaporPressure_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: np.e ** (a + (b / (x)) + c * np.log(x))
         
-        super().__init__('VaporPressure_Extrapolator', func, [a, b, c], ['a', 'b', 'c'], lr=lr)
+        super().__init__('VaporPressure_Extrapolator', func, [a, b, c], ['a', 'b', 'c'], type(self), lr=lr)
 
 class Pow3_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -172,7 +196,7 @@ class Pow3_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: c - a * (x ** (- alpha))
 
-        super().__init__('Pow3_Extrapolator', func, [a, alpha, c], ['a', 'alpha', 'c'], lr=lr)
+        super().__init__('Pow3_Extrapolator', func, [a, alpha, c], ['a', 'alpha', 'c'], type(self), lr=lr)
 
 class LogLogLinear_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -187,7 +211,7 @@ class LogLogLinear_Extrapolator(LearningCurveExtrapolator):
         
         func = lambda x: tf.math.log(a * np.log(x) + b)
 
-        super().__init__('LogLogLinear_Extrapolator', func, [a, b], ['a', 'b'], lr=lr)
+        super().__init__('LogLogLinear_Extrapolator', func, [a, b], ['a', 'b'], type(self), lr=lr)
 
 class LogPower(LearningCurveExtrapolator):
     def __init__(
@@ -203,7 +227,7 @@ class LogPower(LearningCurveExtrapolator):
 
         func = lambda x: a / (1 + ((x / (np.e ** b)) ** c))
 
-        super().__init__('LogPower_Extrapolator', func, [a, b, c], ['a', 'b', 'c'], lr=lr)
+        super().__init__('LogPower_Extrapolator', func, [a, b, c], ['a', 'b', 'c'], type(self), lr=lr)
 
 class Pow4_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -222,7 +246,7 @@ class Pow4_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: c - ((a * x + b) ** (- alpha))
 
-        super().__init__('Pow4_Extrapolator', func, [c, a, b, alpha], ['c', 'a', 'b', 'alpha'], lr=lr)
+        super().__init__('Pow4_Extrapolator', func, [c, a, b, alpha], ['c', 'a', 'b', 'alpha'], type(self), lr=lr)
 
 class MMF_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -241,7 +265,7 @@ class MMF_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: alpha - ((alpha - beta) / (1 + ((k * x) ** delta)))
 
-        super().__init__('MMF_Extrapolator', func, [alpha, beta, delta, k], ['alpha', 'beta', 'delta', 'k'], lr=lr)
+        super().__init__('MMF_Extrapolator', func, [alpha, beta, delta, k], ['alpha', 'beta', 'delta', 'k'], type(self), lr=lr)
 
 class Exp4_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -260,7 +284,7 @@ class Exp4_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: c - (np.e ** (- a * (x ** alpha) + b))
 
-        super().__init__('Exp4_Extrapolator', func, [c, a, b, alpha], ['c', 'a', 'b', 'alpha'], lr=lr)
+        super().__init__('Exp4_Extrapolator', func, [c, a, b, alpha], ['c', 'a', 'b', 'alpha'], type(self), lr=lr)
 
 
 class Janoschek_Extrapolator(LearningCurveExtrapolator):
@@ -280,7 +304,7 @@ class Janoschek_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: alpha - (alpha - beta) * (np.e ** (- k * (x ** delta)))
 
-        super().__init__('Janoschek_Extrapolator', func, [beta, k, delta, alpha], ['beta', 'k', 'delta', 'alpha'], lr=lr)
+        super().__init__('Janoschek_Extrapolator', func, [beta, k, delta, alpha], ['beta', 'k', 'delta', 'alpha'], type(self), lr=lr)
 
 class Weibull_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -299,7 +323,7 @@ class Weibull_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: alpha - (alpha - beta) * (np.e ** (- ((k * x) ** delta)))
 
-        super().__init__('Weibull_Extrapolator', func, [beta, k, delta, alpha], ['beta', 'k', 'delta', 'alpha'], lr=lr)
+        super().__init__('Weibull_Extrapolator', func, [beta, k, delta, alpha], ['beta', 'k', 'delta', 'alpha'], type(self), lr=lr)
 
 class Ilog2_Extrapolator(LearningCurveExtrapolator):
     def __init__(
@@ -314,7 +338,7 @@ class Ilog2_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: c - (a / np.log(x))
 
-        super().__init__('Ilog2_Extrapolator', func, [a, c], ['a', 'c'], lr=lr)
+        super().__init__('Ilog2_Extrapolator', func, [a, c], ['a', 'c'], type(self), lr=lr)
 
 ##########################
 ### Mine extrapolators ###
@@ -341,7 +365,7 @@ class LogShiftScale_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: alpha * tf.math.log(beta * x + i) + j
 
-        super().__init__('LogShiftScale_Extrapolator', func, [alpha, j, beta, i], ['alpha', 'j', 'beta', 'i'], lr=lr)
+        super().__init__('LogShiftScale_Extrapolator', func, [alpha, j, beta, i], ['alpha', 'j', 'beta', 'i'], type(self), lr=lr)
 
 class LogAllFree_Extrapolator(LearningCurveExtrapolator):
     """
@@ -364,6 +388,7 @@ class LogAllFree_Extrapolator(LearningCurveExtrapolator):
             division_scale: float = 0.0,
             division_pow: float = 0.0,
             divison_shift: float = 1.0,
+            lr: float = 0.1
         ) -> None:
 
         scale = tf.Variable(scale)
@@ -380,7 +405,7 @@ class LogAllFree_Extrapolator(LearningCurveExtrapolator):
 
         func = lambda x: (scale * tf.math.log(inside_scale * ((inside_k * x) ** inside_pow) + inside_shift) + shift) / (division_scale * (x ** division_pow) + divison_shift)
 
-        super().__init__('LogAllFree_Extrapolator', func, [scale, shift, inside_scale, inside_shift, inside_pow, inside_k, division_scale, division_pow, divison_shift], ['scale', 'shift', 'inside_scale', 'inside_shift', 'inside_pow', 'inside_k', 'division_scale', 'division_pow', 'divison_shift'])
+        super().__init__('LogAllFree_Extrapolator', func, [scale, shift, inside_scale, inside_shift, inside_pow, inside_k, division_scale, division_pow, divison_shift], ['scale', 'shift', 'inside_scale', 'inside_shift', 'inside_pow', 'inside_k', 'division_scale', 'division_pow', 'divison_shift'], type(self), lr=lr)
 
 ##############################################
 ### Learning Curve Extrapolators Ensembler ###
@@ -420,6 +445,21 @@ class LearningCurveExtrapolatorsEnsembler:
         """
         return sum([ex.predict(epoch) for ex in self.extrapolators]) / len(self.extrapolators)
     
+    def change_lr(self, new_lr: float) -> None:
+        """
+        Changes learning rate of all Ensembler's extrapolators
+        """
+        for lce in self.extrapolators:
+            lce.change_lr(new_lr)
+
+    def copy(self):
+        """
+        Returns copy of itself
+        """
+        return LearningCurveExtrapolatorsEnsembler(
+            [lce.copy() for lce in self.extrapolators],
+            verbose=self.verbose
+        )
 
     def plot_data(self, data: list[float], trained_on_n_samples: int, title: str, save_path: str = None):
 

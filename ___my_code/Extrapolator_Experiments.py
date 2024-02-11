@@ -7,11 +7,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from LearningCurveExtrapolator import *
-from utils import ArchiSampler, load_data
+from utils import ArchiSampler, load_data, calc_spearman_rank_correlation_coef
+from target_extrapolations import standart_initialization_extrapolation, prefit_avg_initialization_extrapolation
 
 
-
-def get_learning_curves_data(amount_of_archs: int) -> tuple[list[list[float]], list[float]]:
+def get_learning_curves_data(amount_of_archs: int, also_return_arch_i: bool = False) -> tuple[list[list[float]], list[float]]:
     """
     Uses np.seed to base its selection.
 
@@ -20,20 +20,26 @@ def get_learning_curves_data(amount_of_archs: int) -> tuple[list[list[float]], l
     data = load_data()
     assert len(data) == 15625, 'Missing architectures in _clean_all_merged.csv'
     
+    sampled_archs_i = []
     arch_i_sampler = ArchiSampler(len(data))    
 
     whole_lcs = []
     avg_whole_lc = np.zeros(200)
     for _ in range(amount_of_archs):
-        val_accs = np.array(data[arch_i_sampler.sample()]['val_accs'])
+        arch_i = arch_i_sampler.sample()
+        val_accs = np.array(data[arch_i]['val_accs'])
 
         avg_whole_lc += val_accs
         whole_lcs.append(val_accs)
 
+        sampled_archs_i.append(arch_i)
+
     avg_whole_lc = avg_whole_lc / amount_of_archs
         
-
-    return whole_lcs, avg_whole_lc
+    if also_return_arch_i:
+        return whole_lcs, avg_whole_lc, sampled_archs_i
+    else:
+        return whole_lcs, avg_whole_lc
 
 
 def get_fresh_extrapolators(lr: float) -> list[LearningCurveExtrapolator]:
@@ -179,88 +185,198 @@ def plot_ensembler_prediction_on_data(ax: plt.Axes, lce_ensembler: LearningCurve
     ax.legend()
 
 
-def finetune_standard_approach(path_to_fig_dir: str, EPOCHS_PARTIAL_LC: int = 20):
+def finetune_standard_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
 
-    lcs_data, avg_lc_data = get_learning_curves_data(50)
-    tested_lrs = [0.5, 0.2, 0.1, 0.05, 0.01]
-    TIME_PER_EXTRAPOLATOR = 20 # 2 epochs worth of time [seconds]
-    
-    fig, axes = plt.subplots(1, len(tested_lrs), layout='constrained', figsize=(len(tested_lrs) * 10, 8))
+    lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
+    tested_lrs = [1, 0.5, 0.2, 0.1, 0.05, 0.01]
 
-    # For each tested lr
     for i, lr in enumerate(tested_lrs):
-        MAE_list = []
+        print('-----------------------------------')
+        print(f'Testing setting {i+1}/{len(tested_lrs)}')
+        print('-----------------------------------')
 
-        # For each architecture
-        for full_lc in lcs_data:
-            train_data = full_lc[:EPOCHS_PARTIAL_LC]
+        val_accs_predictions = standart_initialization_extrapolation(
+            lcs_data,
+            avg_lc_data,
+            TIME_PER_EXTRAPOLATOR_PER_LC,
+            get_top_three_extrapolators,
+            lr,
+            EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+            plots_path=plots_path,
+            verbose=True
+        )
 
-            extr_ensemble = LearningCurveExtrapolatorsEnsembler(get_top_three_extrapolators(lr=lr))
-            extr_ensemble.fit_extrapolators(train_data, time_seconds=TIME_PER_EXTRAPOLATOR) # 2 epochs worth of time [seconds]
+        #print(val_accs_predictions)
 
-            mae_of_fit = get_MAE_of_fit(train_data, [extr_ensemble.predict_avg(i + 1) for i in range(EPOCHS_PARTIAL_LC)])
-            MAE_list.append(mae_of_fit)
+def prefit_average_fit_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
 
-        final_avg_MAE = np.average(MAE_list)
-        
-        # Now plot the graph having the final MAE and also plot fit of the avg curve
-        extr_ensemble = LearningCurveExtrapolatorsEnsembler(get_top_three_extrapolators(lr=lr))
-        extr_ensemble.fit_extrapolators(avg_lc_data[:EPOCHS_PARTIAL_LC], time_seconds=TIME_PER_EXTRAPOLATOR) 
-        
-        plot_ensembler_prediction_on_data(axes[i], extr_ensemble, avg_lc_data, EPOCHS_PARTIAL_LC, f'For lr = {lr} we have average MAE of fit = {round(final_avg_MAE, 5)}')
-    
-        # And also save as singular file
-        fig_singular, ax_singular = plt.subplots(layout='constrained', figsize=(10, 8))
-        plot_ensembler_prediction_on_data(ax_singular, extr_ensemble, avg_lc_data, EPOCHS_PARTIAL_LC, f'For lr = {lr} we have average MAE of fit = {round(final_avg_MAE, 5)}')
-        fig_singular.savefig(os.path.join(path_to_fig_dir, f'Standart_init_approach_lr_{lr}.png'))
-
-
-    # Save the resulting plot
-    if not os.path.exists(path_to_fig_dir):
-        os.mkdir(path_to_fig_dir)
-
-    fig.suptitle('Standard initialization approach', fontsize=24)
-    fig.savefig(os.path.join(path_to_fig_dir, 'Standart_init_approach.png'))
-
-def finetune_average_fit_approach(path_to_fig_dir: str, EPOCHS_PARTIAL_LC: int = 20):
-
-    lcs_data, avg_lc_data = get_learning_curves_data(50)
+    lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
     tested_lrs_tuples = [(0.1, 0.01), (0.1, 0.001)]
-    tested_time_splits = [0.05, 0.15]
-    TIME_PER_EXTRAPOLATOR = 20 * 2 # 2 epochs worth of time [seconds]
+    tested_time_splits = [0.05, 0.15, 0.3]
 
-    fig, axes = plt.subplots(len(tested_time_splits), len(tested_lrs_tuples),  layout='constrained', figsize=(len(tested_time_splits) * 10, len(tested_lrs_tuples) * 8))
+    i, total_i = 0, len(tested_lrs_tuples) * len(tested_time_splits)
+    for lrs_tuple in tested_lrs_tuples:
+        for frac_time_spent_on_average_lc in tested_time_splits:
+            i += 1
+            print('-----------------------------------')
+            print(f'Testing setting {i}/{total_i}')
+            print('-----------------------------------')
 
-    OVERALL_TIME_PER_EXTRAPOLATOR = TIME_PER_EXTRAPOLATOR * len(lcs_data)
+            val_accs_predictions = prefit_avg_initialization_extrapolation(
+                lcs_data,
+                avg_lc_data,
+                TIME_PER_EXTRAPOLATOR_PER_LC,
+                get_top_three_extrapolators,
+                lrs_tuple,
+                frac_time_spent_on_average_lc,
+                EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+                plots_path=plots_path,
+                verbose=True
+            )
 
-    for i, (lr_average_lc, lr_concrete_lc) in enumerate(tested_lrs_tuples):
-        for j, (frac_time_spent_on_average_lc) in enumerate(tested_time_splits):
+            #print(val_accs_predictions)
             
-            # Do the training on averaged curve first
-            pass # Add copy to LCEEnsembler and LCE...
+def plot_Spearman_rank_corr_coef_for_initialization_approaches(plots_path: str, TIMES_PER_EXTRAPOLATOR_PER_LC: list[float], EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
+    """
+    Plots Spearman-rank-correlation-coeficient against time-per-extrapoaltion-per-lc for 
+    Standart and prefit average initialization approaches with their best hyper parameters as in thesis
+    """
+    # Hyper parameters for Standart approach
+    standart_aproach___lr = 0.2
 
-            # Then go by each concrete learning curve
-            # Here simply copy Ensembler and fit it additionaly
+    # Hyper parameters for Prefit average approach
+    prefit_average___lrs = (0.1, 0.01)
+    prefit_average___frac_time_spent_prefiting = 0.3
 
+    ### Data upon which the experiments will be run
+    lcs_data, avg_lc_data, sampled_archs_i = get_learning_curves_data(LCS_AMOUNT, also_return_arch_i=True)
+    # And also create ground truth dict used for calculating Spearman rank corr coef
+    ground_truth_arch_dict = {
+        arch_i: val_accs[-1] for (arch_i, val_accs) in zip(sampled_archs_i, lcs_data)
+    }
+
+    # Spearmans accumulations
+    standart_aproach___spearmans = []
+    prefit_average___spearmans = []
+
+    # For every time budget
+    for TIME_PER_EXTRAPOLATOR_PER_LC in TIMES_PER_EXTRAPOLATOR_PER_LC:
+        print()
+        print(f'Starting Standart initialization approach for time budget: {TIME_PER_EXTRAPOLATOR_PER_LC}')
+        print()
+
+        # Run standart approach for predicitons
+        standart_aproach___val_accs_predictions = standart_initialization_extrapolation(
+            lcs_data,
+            avg_lc_data,
+            TIME_PER_EXTRAPOLATOR_PER_LC,
+            get_top_three_extrapolators,
+            standart_aproach___lr,
+            EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+            plots_path=None,
+            verbose=True
+        )
+        # Create dict of val accs predictions for Spearman rank corr coef calculation
+        standart_aproach___val_accs_predictions = {
+            arch_i: predicted_val_acc for (arch_i, predicted_val_acc) in zip(sampled_archs_i, standart_aproach___val_accs_predictions)
+        }
+
+        # Get its resulting Spearman
+        standart_aproach___spearmans.append(
+            calc_spearman_rank_correlation_coef(ground_truth_arch_dict, standart_aproach___val_accs_predictions, also_plot=False)
+        )
         
+        # Now do the same for prefit average approach
+        print()
+        print(f'Starting Prefit average initialization approach for time budget: {TIME_PER_EXTRAPOLATOR_PER_LC}')
+        print()
 
+        prefit_average___val_accs_predictions = prefit_avg_initialization_extrapolation(
+            lcs_data,
+            avg_lc_data,
+            TIME_PER_EXTRAPOLATOR_PER_LC,
+            get_top_three_extrapolators,
+            prefit_average___lrs,
+            prefit_average___frac_time_spent_prefiting,
+            EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+            plots_path=None,
+            verbose=True
+        )
+        # Create dict of val accs predictions for Spearman rank corr coef calculation
+        prefit_average___val_accs_predictions = {
+            arch_i: predicted_val_acc for (arch_i, predicted_val_acc) in zip(sampled_archs_i, prefit_average___val_accs_predictions)
+        }
+        # Get its resulting Spearman
+        prefit_average___spearmans.append(
+            calc_spearman_rank_correlation_coef(ground_truth_arch_dict, prefit_average___val_accs_predictions, also_plot=False)
+        )
+        
     
+    # After we have collected all the data lets plot them
+    fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
+    
+    # Plot Standart's approach Spearmans
+    ax.plot(TIMES_PER_EXTRAPOLATOR_PER_LC, standart_aproach___spearmans, 'o--', label='Standart approach')
+    print(standart_aproach___spearmans)
+    # And also the prefit average's approach Spearmans
+    ax.plot(TIMES_PER_EXTRAPOLATOR_PER_LC, prefit_average___spearmans, 'o--', label='Prefit average approach')
+    print(prefit_average___spearmans)
+
+    ax.set_ylabel('Spearman rank correlation coefficient')
+    ax.set_xlabel('Time budget per extrapolator per partial learning curve [s]')
+    ax.legend()
+
+    ax.set_title(f'Rankings of {LCS_AMOUNT} architectures depending on the time budget')
+
+    os.makedirs(plots_path, exist_ok=True)
+    plt.savefig(os.path.join(plots_path, f'Spearman_rank_corr_coef_comparison.png'), dpi=300)
+            
+
+
+
+
+
+
+
 
 
 
 def main(path_to_fig_dir: str):
+    """
     # For MAE_progress_all.png and predictions_x_ground_truth_all.png
-    #get_plot_with_all_extrapolators_fitting_on_averaged_out_curve(get_fresh_extrapolators(0.1), save_name_suffix='all')
+    get_plot_with_all_extrapolators_fitting_on_averaged_out_curve(get_fresh_extrapolators(0.1), save_name_suffix='all')
+    #"""
 
+    """
     # For MAE_progress_three.png and predictions_x_ground_truth_three.png
-    #get_plot_with_all_extrapolators_fitting_on_averaged_out_curve(get_top_three_extrapolators(0.1), save_name_suffix='three')
-     
-    # Find out best hyper parameters for naive initialization approach
-    finetune_standard_approach(os.path.join(path_to_fig_dir, 'Init_approaches_finetune'))
+    get_plot_with_all_extrapolators_fitting_on_averaged_out_curve(get_top_three_extrapolators(0.1), save_name_suffix='three')
+    #"""
+
+    #"""
+    # Find out best hyper parameters for standart initialization approach
+    finetune_standard_approach(
+        os.path.join(path_to_fig_dir, 'Init_approaches_finetune', 'Standart_approach'),
+        TIME_PER_EXTRAPOLATOR_PER_LC=20,
+    )
+    #"""
+
+    #"""
+    # Fing out the best hyper parameters for prefitting average lc initialization approach
+    prefit_average_fit_approach(
+        os.path.join(path_to_fig_dir, 'Init_approaches_finetune', 'Prefit_avg_approach'),
+        TIME_PER_EXTRAPOLATOR_PER_LC=20
+    )    
+    #"""
+
+    """
+    plot_Spearman_rank_corr_coef_for_initialization_approaches(
+        os.path.join(path_to_fig_dir, 'Init_approaches_Spearman_comparison'),
+        TIMES_PER_EXTRAPOLATOR_PER_LC=[20],
+        LCS_AMOUNT=10
+    )
+    #"""
 
 
-    
-    
 
 
 if __name__ == '__main__':
