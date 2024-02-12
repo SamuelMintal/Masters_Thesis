@@ -185,9 +185,8 @@ def plot_ensembler_prediction_on_data(ax: plt.Axes, lce_ensembler: LearningCurve
     ax.legend()
 
 
-def finetune_standard_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
+def finetune_standard_approach(lcs_data: list[list[float]], avg_lc_data: list[float], plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20):
 
-    lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
     tested_lrs = [1, 0.5, 0.2, 0.1, 0.05, 0.01]
 
     for i, lr in enumerate(tested_lrs):
@@ -208,10 +207,9 @@ def finetune_standard_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: fl
 
         #print(val_accs_predictions)
 
-def prefit_average_fit_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
+def prefit_average_fit_approach(lcs_data: list[list[float]], avg_lc_data: list[float], plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: float, EPOCHS_PARTIAL_LC: int = 20):
 
-    lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
-    tested_lrs_tuples = [(0.1, 0.01), (0.1, 0.001)]
+    tested_lrs_tuples = [(0.2, 0.05), (0.1, 0.01), (0.1, 0.001)]
     tested_time_splits = [0.05, 0.15, 0.3]
 
     i, total_i = 0, len(tested_lrs_tuples) * len(tested_time_splits)
@@ -236,20 +234,20 @@ def prefit_average_fit_approach(plots_path: str, TIME_PER_EXTRAPOLATOR_PER_LC: f
 
             #print(val_accs_predictions)
             
-def plot_Spearman_rank_corr_coef_for_initialization_approaches(plots_path: str, TIMES_PER_EXTRAPOLATOR_PER_LC: list[float], EPOCHS_PARTIAL_LC: int = 20, LCS_AMOUNT: int = 50):
+def plot_Spearman_rank_corr_coef_for_initialization_approaches(lcs_data: list[list[float]], avg_lc_data: list[float], sampled_archs_i: list[int], plots_path: str, TIMES_PER_EXTRAPOLATOR_PER_LC: list[float], EPOCHS_PARTIAL_LC: int = 20):
     """
     Plots Spearman-rank-correlation-coeficient against time-per-extrapoaltion-per-lc for 
     Standart and prefit average initialization approaches with their best hyper parameters as in thesis
     """
+    LCS_AMOUNT = len(lcs_data)
+
     # Hyper parameters for Standart approach
     standart_aproach___lr = 0.2
 
     # Hyper parameters for Prefit average approach
     prefit_average___lrs = (0.1, 0.01)
-    prefit_average___frac_time_spent_prefiting = 0.3
+    prefit_average___frac_time_spent_prefiting = 0.05
 
-    ### Data upon which the experiments will be run
-    lcs_data, avg_lc_data, sampled_archs_i = get_learning_curves_data(LCS_AMOUNT, also_return_arch_i=True)
     # And also create ground truth dict used for calculating Spearman rank corr coef
     ground_truth_arch_dict = {
         arch_i: val_accs[-1] for (arch_i, val_accs) in zip(sampled_archs_i, lcs_data)
@@ -351,10 +349,14 @@ def main(path_to_fig_dir: str):
     # For MAE_progress_three.png and predictions_x_ground_truth_three.png
     get_plot_with_all_extrapolators_fitting_on_averaged_out_curve(get_top_three_extrapolators(0.1), save_name_suffix='three')
     #"""
+    LCS_AMOUNT = 50
+    lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
 
     #"""
     # Find out best hyper parameters for standart initialization approach
     finetune_standard_approach(
+        lcs_data, 
+        avg_lc_data,
         os.path.join(path_to_fig_dir, 'Init_approaches_finetune', 'Standart_approach'),
         TIME_PER_EXTRAPOLATOR_PER_LC=20,
     )
@@ -363,16 +365,21 @@ def main(path_to_fig_dir: str):
     #"""
     # Fing out the best hyper parameters for prefitting average lc initialization approach
     prefit_average_fit_approach(
+        lcs_data, 
+        avg_lc_data,
         os.path.join(path_to_fig_dir, 'Init_approaches_finetune', 'Prefit_avg_approach'),
         TIME_PER_EXTRAPOLATOR_PER_LC=20
     )    
     #"""
 
-    """
+    lcs_data, avg_lc_data, sampled_archs_i = get_learning_curves_data(LCS_AMOUNT, also_return_arch_i=True)
+    #"""
     plot_Spearman_rank_corr_coef_for_initialization_approaches(
+        lcs_data, 
+        avg_lc_data, 
+        sampled_archs_i,
         os.path.join(path_to_fig_dir, 'Init_approaches_Spearman_comparison'),
-        TIMES_PER_EXTRAPOLATOR_PER_LC=[20],
-        LCS_AMOUNT=10
+        TIMES_PER_EXTRAPOLATOR_PER_LC=[10, 20, 40]
     )
     #"""
 
