@@ -245,7 +245,7 @@ def plot_Spearman_rank_corr_coef_for_initialization_approaches(lcs_data: list[li
     standart_aproach___lr = 0.2
 
     # Hyper parameters for Prefit average approach
-    prefit_average___lrs = (0.1, 0.01)
+    prefit_average___lrs = (0.2, 0.05)
     prefit_average___frac_time_spent_prefiting = 0.05
 
     # And also create ground truth dict used for calculating Spearman rank corr coef
@@ -312,7 +312,8 @@ def plot_Spearman_rank_corr_coef_for_initialization_approaches(lcs_data: list[li
     
     # After we have collected all the data lets plot them
     fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
-    
+    print(TIMES_PER_EXTRAPOLATOR_PER_LC)
+
     # Plot Standart's approach Spearmans
     ax.plot(TIMES_PER_EXTRAPOLATOR_PER_LC, standart_aproach___spearmans, 'o--', label='Standart approach')
     print(standart_aproach___spearmans)
@@ -329,6 +330,72 @@ def plot_Spearman_rank_corr_coef_for_initialization_approaches(lcs_data: list[li
     os.makedirs(plots_path, exist_ok=True)
     plt.savefig(os.path.join(plots_path, f'Spearman_rank_corr_coef_comparison.png'), dpi=300)
             
+
+
+
+def check_statistics_of_prefit_average(lcs_data: list[list[float]], avg_lc_data: list[float], sampled_archs_i: list[int], EPOCHS_PARTIAL_LC: int = 20):
+        from scipy import stats
+
+        ground_truth = [val_accs[-1] for val_accs in lcs_data]
+
+        custom_ground_truth = {
+            arch_i: val_accs[-1] for (arch_i, val_accs) in zip(sampled_archs_i, lcs_data)
+        }
+
+        
+        print('prefit avg')
+        prefit_average___val_accs_predictions = prefit_avg_initialization_extrapolation(
+            lcs_data,
+            avg_lc_data,
+            5,
+            get_top_three_extrapolators,
+            (0.2, 0.05),
+            0.05,
+            EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+            plots_path=os.path.join('plot_thesis_figures', 'one_k_check'),
+            verbose=True
+        )
+
+        
+
+        ken_tau = stats.kendalltau(prefit_average___val_accs_predictions, ground_truth)
+        print(f'kendalltau: {ken_tau.statistic}')
+
+        spearman_coef = stats.spearmanr(prefit_average___val_accs_predictions, ground_truth)
+        print(f'spearmanr: {spearman_coef.statistic}')
+
+        custom_predictions = {
+            arch_i: val_acc for (arch_i, val_acc) in zip(sampled_archs_i, prefit_average___val_accs_predictions)
+        }
+        plt.show()
+        custom_spearman = calc_spearman_rank_correlation_coef(custom_ground_truth, custom_predictions, also_plot=False)
+        print(f'custom_spearman: {custom_spearman}')
+
+        print('standart')
+        standart_aproach___val_accs_predictions = standart_initialization_extrapolation(
+            lcs_data,
+            avg_lc_data,
+            20,
+            get_top_three_extrapolators,
+            0.2,
+            EPOCHS_PARTIAL_LC=EPOCHS_PARTIAL_LC,
+            plots_path=os.path.join('plot_thesis_figures', 'one_k_check'),
+            verbose=True
+        )
+
+        ken_tau = stats.kendalltau(standart_aproach___val_accs_predictions, ground_truth)
+        print(f'kendalltau: {ken_tau.statistic}')
+
+        spearman_coef = stats.spearmanr(standart_aproach___val_accs_predictions, ground_truth)
+        print(f'spearmanr: {spearman_coef.statistic}')
+
+        custom_predictions = {
+            arch_i: val_acc for (arch_i, val_acc) in zip(sampled_archs_i, standart_aproach___val_accs_predictions)
+        }
+        plt.show()
+        custom_spearman = calc_spearman_rank_correlation_coef(custom_ground_truth, custom_predictions, also_plot=False)
+        print(f'custom_spearman: {custom_spearman}')
+
 
 
 
@@ -352,7 +419,7 @@ def main(path_to_fig_dir: str):
     LCS_AMOUNT = 50
     lcs_data, avg_lc_data = get_learning_curves_data(LCS_AMOUNT)
 
-    #"""
+    """
     # Find out best hyper parameters for standart initialization approach
     finetune_standard_approach(
         lcs_data, 
@@ -362,7 +429,7 @@ def main(path_to_fig_dir: str):
     )
     #"""
 
-    #"""
+    """
     # Fing out the best hyper parameters for prefitting average lc initialization approach
     prefit_average_fit_approach(
         lcs_data, 
@@ -371,17 +438,21 @@ def main(path_to_fig_dir: str):
         TIME_PER_EXTRAPOLATOR_PER_LC=20
     )    
     #"""
+    
 
+    LCS_AMOUNT = 1000
     lcs_data, avg_lc_data, sampled_archs_i = get_learning_curves_data(LCS_AMOUNT, also_return_arch_i=True)
-    #"""
+    """
     plot_Spearman_rank_corr_coef_for_initialization_approaches(
         lcs_data, 
         avg_lc_data, 
         sampled_archs_i,
         os.path.join(path_to_fig_dir, 'Init_approaches_Spearman_comparison'),
-        TIMES_PER_EXTRAPOLATOR_PER_LC=[10, 20, 40]
+        TIMES_PER_EXTRAPOLATOR_PER_LC=[1, 5, 10, 20, 40] 
     )
     #"""
+
+    #check_statistics_of_prefit_average(lcs_data, avg_lc_data, sampled_archs_i)
 
 
 
