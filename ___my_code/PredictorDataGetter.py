@@ -1,3 +1,5 @@
+import numpy as np
+
 from utils import *
 from ArchitectureEncoder import *
 from LearningCurveExtrapolator import *
@@ -6,7 +8,7 @@ class DataGetter:
     """
     Class providing abstraction over data.
     """
-    def __init__(self, arch_encoder: ArchitectureEncoder, features_to_get: list[str], data_path: str = os.path.join('___my_code', '_clean_all_merged.csv')) -> None:
+    def __init__(self, arch_encoder: ArchitectureEncoder, features_to_get: list[str], extrapolation_strategy: Callable, data_path: str = os.path.join('___my_code', '_clean_all_merged.csv')) -> None:
         """
         Loads data into memory and sets ArchitectureEncoder and feature list which define what the input for the perforamnce predictor will be.
 
@@ -17,15 +19,39 @@ class DataGetter:
 
         features_to_get : list[str]
             list of features which to retrieve for prediction purposes.
+
+        extrapolation_strategy : Callable
+            Function accepting 2 parameters. 1st being list of learning curves and 2nd being the averaged learning curve.
+            Output of this function are extrapolated targets in the same order.
         """
         self.arch_encoder = arch_encoder
         self.features_to_get = features_to_get
+        self.extrapolation_strategy = extrapolation_strategy
         self.data = load_data(data_path)
 
         # Maps string-ified standart encoding of an architecture to it's arch_i (by which we index `self.data`)
         self.std_encoding_to_arch_i = {
             str(self.arch_encoder.arch_str_to_standart_encoding(arch_data['arch_str'])): arch_i for (arch_i, arch_data) in self.data.items()
         }
+
+    def get_testing_data_for_arch_indices(self, arch_indices: list[int]) -> tuple[list[list[float]], list[float]]:
+        """
+        Returns tuple containing list of input features (which are np.array) and np.array of real validation accuracies.
+        Both of there lists are matched by index with the arch_indices.
+        """
+        test_inputs, test_truths = [], []
+        for arch_i in arch_indices:
+
+            test_inputs.append(
+                self.get_prediction_features_by_arch_index(arch_i)
+            )
+
+            test_truths.append(
+                self.get_real_val_acc_of_arch(arch_i)
+            )
+
+        return test_inputs, np.array(test_truths)
+
 
     def get_arch_i_from_standart_encoding(self, std_encoding: list[int]) -> int:
         """
@@ -50,7 +76,7 @@ class DataGetter:
         """
         Returns all indices of available architectures
         """
-        return list(self.data.keys())
+        return np.array(list(self.data.keys()))
     
     def get_real_val_acc_of_arch(self, arch_i: int) -> float:
         """
@@ -77,7 +103,7 @@ class DataGetter:
         Returns
         -------
         list[float]:
-            features of architecture for prediction
+            features of architecture for prediction as a np.array
         """
         # Firstly get architecture's data
         arch_data = self.data[arch_index]
@@ -88,42 +114,34 @@ class DataGetter:
         # Thirdly collect the required features
         arch_features = [arch_data[feat] for feat in self.features_to_get]
 
-        return arch_encoding + arch_features
+        return np.array(arch_encoding + arch_features)
         
 
-    def get_training_data_by_arch_index(
+    def get_training_data_by_arch_indices(
             self,
-            arch_index: int, 
-            lc_extrapolaion_info: tuple[LearningCurveExtrapolatorsEnsembler, int, int]
+            arch_indices: list[int], 
         ) -> tuple[list[int], int]:
         """
         Returns input features as well as extrapolated target for specified architecture.
 
         Parameters
         ----------
-        arch_index : int 
-            Index of an architecture for which to retrieve the data (arch_i).        
-
-        lc_extrapolaion_info : tuple[LearningCurveExtrapolatorsEnsembler, int, int]
-            Tuple of 3 elements containing all of the information about target generation:
-            - LearningCurveExtrapolatorsEnsembler used for extrapolating target.            
-            - Amount of architecture's training epochs on which the extrapolator will be fitted.
-            - The amount of seconds for which each extrapolator in ensembler will be able to do it's fitting.
+        arch_indices : list[int]
+            list of indices of architectures for which to retrieve the data (arch_i).        
 
         Returns
         -------
-        tuple[list[int], int]
-            tuple containing training-data and it's target
+        tuple[list[list[float]], list[float]]
+            tuple containing list of training-data and list of their targets
         """
-        # Firstly get input features
-        input_features = self.get_prediction_features_by_arch_index(arch_index)
+        # Get prediction features used for model based predictor
+        prediction_features: list[list[float]] = [self.get_prediction_features_by_arch_index(arch_i) for arch_i in arch_indices]
 
-        # And Secondly before we return results, get the target
-        # validation accuracy of the architecture
-        lc_extrapolator, n_training_data, n_training_secs = lc_extrapolaion_info
-        trainning_data = self.data[arch_index]['val_accs'][:n_training_data]
-        lc_extrapolator.fit_extrapolators(trainning_data, time_seconds=n_training_secs)
-        target = lc_extrapolator.predict_avg(200).numpy()
+        # Extrapolate targets with `self.extrapolation_strategy` extrapolation strategy
+        input_lcs = [np.array(self.data[arch_i]['val_accs']) for arch_i in arch_indices]
+        input_average_lc = sum(input_lcs) / len(input_lcs)
+        # It will take only part of the full learning curves supplied given by its internal parametrization
+        extrapolated_tartgets: list[float] = np.array(self.extrapolation_strategy(input_lcs, input_average_lc))
 
         # Return results
-        return input_features, target
+        return prediction_features, extrapolated_tartgets

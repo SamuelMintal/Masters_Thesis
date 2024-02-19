@@ -1,8 +1,7 @@
 from typing import Callable
-
 import os
-import numpy
 import numpy as np
+
 import matplotlib.pyplot as plt
 
 from LearningCurveExtrapolator import LearningCurveExtrapolator, LearningCurveExtrapolatorsEnsembler
