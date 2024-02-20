@@ -17,7 +17,6 @@ from PredictorDataGetter import DataGetter
 from target_extrapolations import prefit_avg_initialization_extrapolation
 from LearningCurveExtrapolator import LearningCurveExtrapolator, LogShiftScale_Extrapolator, VaporPressure_Extrapolator, Pow3_Extrapolator
 
-
 def get_optimal_prefit_avg_partialed_func() -> Callable:
     """
     returns prefit_avg_initialization_extrapolation function with hyperparameters
@@ -60,7 +59,6 @@ def train_XGBoost(train_inputs: list[list[float]], train_targets: list[float]):
     Trains and returns XGBoost based predictor on supplied data
     """
     XGBoost_predictor = XGBRegressor()
-    print('Fitting XGBoost started')
     t_start = time()
     XGBoost_predictor.fit(train_inputs, train_targets)
     print(f'Fitting XGBoost finished in {round(time() - t_start)} seconds.')
@@ -71,9 +69,72 @@ def predict_XGBoost(XG_Boost, predict_inputs: list[list[float]]) -> list[float]:
     return XG_Boost.predict(predict_inputs)
 
 
-def train_n_predict():
-    pass
+def train_NeuralNet(train_inputs: list[list[float]], train_targets: list[float], WIDTH=128, LEN=5, overfitting_plot_path: str = None, N_EPOCHS: int | None = None) -> tf.keras.Model:
+    """
+    Trains neural network on supplied data
 
+    Parameters
+    ----------
+    overfitting_plot_path : str | None
+        If string then plots of training progress are saved together with validation loss. For this reason
+        It automatically lets 10% of training data for validation purposes thus reduces train set size. If it 
+        is None then no plotting is performed and thus all the train set is used for training and no validation data are used
+
+    N_EPOCHS : int | None, default=None
+        If None then is set to default 2000.
+    """
+    if N_EPOCHS is None:
+        N_EPOCHS = 2000
+    
+    INPUT_LENGTH = len(train_inputs[0])
+    
+    inputs = tf.keras.layers.Input(shape=(INPUT_LENGTH,))
+    
+    x = inputs
+    for _ in range(LEN):
+        x = tf.keras.layers.Dense(units=WIDTH, activation='relu')(x)
+        x = tf.keras.layers.BatchNormalization()(x)
+
+    outputs = tf.keras.layers.Dense(1, activation='linear')(x)
+
+    model = tf.keras.models.Model(inputs=inputs, outputs=outputs)
+
+    model.compile(
+        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001), 
+        loss=tf.keras.losses.MeanSquaredError()
+    )
+
+    t_start = time()
+    history = model.fit(
+        train_inputs,
+        train_targets,
+        batch_size=32,
+        epochs=N_EPOCHS,
+        validation_split=(0.1 if overfitting_plot_path is not None else 0),
+        verbose=0
+    )
+    fitting_time = round(time() - t_start)
+    print(f'Fitting Neural Network finished in {fitting_time} seconds.')
+
+    if overfitting_plot_path is not None:
+        fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
+
+        for metric in ['loss', 'val_loss']:
+            ax.plot(np.arange(N_EPOCHS), history.history[metric], label=metric)
+
+        ax.set_xlabel('Epochs trained')
+        ax.set_ylabel('MSE loss value')
+
+        ax.set_title(f'Training progress with |train_set| = {len(train_inputs)}. Took {fitting_time} seconds.')
+        ax.legend()
+
+        os.makedirs(overfitting_plot_path, exist_ok=True)
+        fig.savefig(os.path.join(overfitting_plot_path, f'training_progress_with_train_set_{len(train_inputs)}_width_{WIDTH}_len_{LEN}.png'), dpi=300)
+
+    return model
+
+def predict_NeuralNet(neural_net: tf.keras.Model, predict_inputs: list[list[float]]) -> list[float]:
+    return neural_net.predict(predict_inputs, verbose=0)
 
 
 
@@ -110,15 +171,20 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     # transform train_archs_i into training inputs and targets (LC Extrapolation happens here)
     train_inputs, train_targets = data_getter_onehot.get_training_data_by_arch_indices(train_archs_i)
     # And also note real validation accuracies of train_archs_i for theroeticaly maximum Spearman calculation
-    train_real_valaccs = [data_getter_onehot.get_real_val_acc_of_arch(arch_i) for arch_i in train_archs_i]
+    train_real_valaccs = np.array([data_getter_onehot.get_real_val_acc_of_arch(arch_i) for arch_i in train_archs_i])
     
+
     # Initilize lists for collecting required data for plotting
     # X axis is given by N_TRAIN_ARCHS_LIST
     extrapolated_train_targets_spearman    = [] # Spearman rank corr coeff of Extrapolations, giving theoretical maximum
     XGBoost___test_set_measured_spearman   = [] # Spearman rank corr coeff of predictions of XGBoost on the test set
-    NeuralNet___test_set_measured_spearman = [] # Spearman rank corr coeff of predictions of Neural Network on the test set
+    NeuralNet_Small___test_set_measured_spearman = [] # Spearman rank corr coeff of predictions of Small Neural Network on the test set
+    NeuralNet_Big___test_set_measured_spearman   = [] # Spearman rank corr coeff of predictions of  Big  Neural Network on the test set
 
-    for N_TRAIN_ARCHS in N_TRAIN_ARCHS_LIST:
+    N_Epochs_Small_NeuralNet = [None for _ in range(len(N_TRAIN_ARCHS_LIST))]
+    N_Epochs_Big_NeuralNet = [None for _ in range(len(N_TRAIN_ARCHS_LIST))]
+
+    for i, N_TRAIN_ARCHS in enumerate(N_TRAIN_ARCHS_LIST):
         # Limit training data to N_TRAIN_ARCHS samples
         cur_train_inputs, cur_train_targets = train_inputs[:N_TRAIN_ARCHS], train_targets[:N_TRAIN_ARCHS]
 
@@ -138,25 +204,75 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
             stats.spearmanr(test_real_valaccs, test_predictions).statistic
         )
 
-        # Now do the same for the neural network based predictor
+        ###
+        ### Now do the same for the both neural network based predictor
+        ###
+        # Starting with small one
+        print(f'Starting to train small Neural Network with |train_set| = {N_TRAIN_ARCHS}')
+        small_NN_model = train_NeuralNet(
+            cur_train_inputs, 
+            cur_train_targets, 
+            overfitting_plot_path=os.path.join(plots_path, 'small_NN'), 
+            WIDTH=128, 
+            LEN=5, 
+            N_EPOCHS=N_Epochs_Small_NeuralNet[i]
+        )
+        test_predictions = predict_NeuralNet(small_NN_model, test_inputs)
 
-    
+        NeuralNet_Small___test_set_measured_spearman.append(
+            # Note that we always use entire testing set
+            stats.spearmanr(test_real_valaccs, test_predictions).statistic
+        )
+        # And Big one
+        print(f'Starting to train big Neural Network with |train_set| = {N_TRAIN_ARCHS}')
+        big_NN_model = train_NeuralNet(
+            cur_train_inputs, 
+            cur_train_targets, 
+            overfitting_plot_path=os.path.join(plots_path, 'big_NN'), 
+            WIDTH=128*2, 
+            LEN=5*2, 
+            N_EPOCHS=N_Epochs_Big_NeuralNet[i]
+        )
+        test_predictions = predict_NeuralNet(big_NN_model, test_inputs)
+
+        NeuralNet_Big___test_set_measured_spearman.append(
+            # Note that we always use entire testing set
+            stats.spearmanr(test_real_valaccs, test_predictions).statistic
+        )
+        
+
     # And now plot the results
     fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
 
     ax.plot(N_TRAIN_ARCHS_LIST, extrapolated_train_targets_spearman, 'o--', label='Extrapolated targets of train set')
     ax.plot(N_TRAIN_ARCHS_LIST, XGBoost___test_set_measured_spearman, 'o--', label='XGBoost\'s predictions on test set')
-    ax.plot(N_TRAIN_ARCHS_LIST, NeuralNet___test_set_measured_spearman, 'o--', label='Neural Network\'s predictions on test set')
+    ax.plot(N_TRAIN_ARCHS_LIST, NeuralNet_Small___test_set_measured_spearman, 'o--', label='Small Neural Network\'s predictions on test set')
+    ax.plot(N_TRAIN_ARCHS_LIST, NeuralNet_Big___test_set_measured_spearman, 'o--', label='Big Neural Network\'s predictions on test set')
 
     ax.set_ylabel('Spearman rank correlation coefficient')
     ax.set_xlabel('Amount of architectures in the train set')
     ax.legend()
 
-    ax.set_title(f'Dependence of the rank correlation on the size of the test set')
+    ax.set_title(f'Dependence of the rank correlation on the size of the train set')
 
     os.makedirs(plots_path, exist_ok=True)
-    plt.savefig(os.path.join(plots_path, f'Spearman_rank_corr_coef_vs_train_set_size.png'), dpi=300)
+    fig.savefig(os.path.join(plots_path, f'Spearman_rank_corr_coef_vs_train_set_size.png'), dpi=300)
+    
+    ##########################################
+    ##########################################
+    ##########################################
+    print('extrapolated_train_targets_spearman')
+    print(extrapolated_train_targets_spearman)
 
+    print('XGBoost___test_set_measured_spearman')
+    print(XGBoost___test_set_measured_spearman)
+    
+    print('NeuralNet_Small___test_set_measured_spearman')
+    print(NeuralNet_Small___test_set_measured_spearman)
+    
+    print('NeuralNet_Big___test_set_measured_spearman')
+    print(NeuralNet_Big___test_set_measured_spearman)
+    
 
 
 
@@ -164,12 +280,11 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
 
 
 
-
-
 def main(path_to_fig_dir: str):
+    
     plot_Spearman_against_train_set_size(
         1000, 
-        [50, 100, 200, 300, 400],
+        [50, 100, 150, 200, 250, 300, 350, 400],
         os.path.join(path_to_fig_dir, 'ML_models_Spearman_progression')
     )
 

@@ -96,7 +96,7 @@ def get_training_data_for_predictor(config: RunConfig, verbose: bool = True, add
         if verbose:
             print(f'Getting training data for arch_i {arch_i}. Time remaining is {round(config.get_expected_time_for_perf_perdictor_data_gathering() - (time() - beg_training_time))} seconds')
 
-        data_x, data_y = config.data_getter.get_training_data_by_arch_index(
+        data_x, data_y = config.data_getter.get_training_data_by_arch_indices(
             arch_i,
             (config.get_new_lc_extrapolators_ensembler(), config.epochs_trained_per_arch_for_extrapolatos, config.secs_per_extrapolator_fitting)
         )

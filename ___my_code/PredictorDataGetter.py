@@ -50,7 +50,7 @@ class DataGetter:
                 self.get_real_val_acc_of_arch(arch_i)
             )
 
-        return test_inputs, np.array(test_truths)
+        return np.array(test_inputs), np.array(test_truths)
 
 
     def get_arch_i_from_standart_encoding(self, std_encoding: list[int]) -> int:
@@ -135,7 +135,7 @@ class DataGetter:
             tuple containing list of training-data and list of their targets
         """
         # Get prediction features used for model based predictor
-        prediction_features: list[list[float]] = [self.get_prediction_features_by_arch_index(arch_i) for arch_i in arch_indices]
+        prediction_features: list[list[float]] = np.array([self.get_prediction_features_by_arch_index(arch_i) for arch_i in arch_indices])
 
         # Extrapolate targets with `self.extrapolation_strategy` extrapolation strategy
         input_lcs = [np.array(self.data[arch_i]['val_accs']) for arch_i in arch_indices]
