@@ -293,7 +293,7 @@ def main(path_to_fig_dir: str):
     
     plot_Spearman_against_train_set_size(
         1000, 
-        [5,10],#[50, 100, 150, 200, 250, 300, 350, 400,450,500,550,600,650,700,750,800],
+        [50, 100, 200, 300, 400, 500, 600],
         os.path.join(path_to_fig_dir, 'ML_models_Spearman_progression'),
         use_None_training_epochs=True
     )
