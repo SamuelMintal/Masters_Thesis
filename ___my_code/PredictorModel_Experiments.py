@@ -153,7 +153,8 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
         List of amount of architectures which will be used for training. Are disjoint with N_TEST_ARCHS
 
     use_None_training_epochs: bool = False
-        If set to true keep defualt amount of epochs to (train set to 2000). Else found best epochs counts are used
+        If set to true keep defualt amount of epochs to (train set to 2000) and thus the plotting of their vlaidation learning curves occurs ~ splitting the train data into train and validation.
+        Else if False found best epochs counts are used and no plotting and splitting to validation data is performed
     """
     N_TRAIN_ARCHS = max(N_TRAIN_ARCHS_LIST)
 
@@ -247,7 +248,7 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
             train_targets, 
             WIDTH=128, 
             LEN=5, 
-            overfitting_plot_path=os.path.join(plots_path, 'small_NN'), 
+            overfitting_plot_path=(os.path.join(plots_path, 'small_NN') if use_None_training_epochs else None), 
             N_EPOCHS=N_Epochs_Small_NeuralNet[i]
         )
         test_predictions = predict_NeuralNet(small_NN_model, test_inputs_onehot)
@@ -263,7 +264,7 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
             train_targets, 
             WIDTH=128*2, 
             LEN=5*2, 
-            overfitting_plot_path=os.path.join(plots_path, 'big_NN'), 
+            overfitting_plot_path=(os.path.join(plots_path, 'big_NN') if use_None_training_epochs else None), 
             N_EPOCHS=N_Epochs_Big_NeuralNet[i]
         )
         test_predictions = predict_NeuralNet(big_NN_model, test_inputs_onehot)
