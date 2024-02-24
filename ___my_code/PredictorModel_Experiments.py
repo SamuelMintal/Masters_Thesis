@@ -160,7 +160,8 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     # Initilize lists for collecting required data for plotting
     # X axis is given by N_TRAIN_ARCHS_LIST
     extrapolated_train_targets_spearman    = [] # Spearman rank corr coeff of Extrapolations, giving theoretical maximum
-    XGBoost___test_set_measured_spearman   = [] # Spearman rank corr coeff of predictions of XGBoost on the test set
+    XGBoost_onehot___test_set_measured_spearman   = [] # Spearman rank corr coeff of predictions of XGBoost on the test set using ONEHOT encoding
+    XGBoost_std___test_set_measured_spearman      = [] # Spearman rank corr coeff of predictions of XGBoost on the test set using STANDART encoding
     NeuralNet_Small___test_set_measured_spearman = [] # Spearman rank corr coeff of predictions of Small Neural Network on the test set
     NeuralNet_Big___test_set_measured_spearman   = [] # Spearman rank corr coeff of predictions of  Big  Neural Network on the test set
 
@@ -168,12 +169,16 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
         N_Epochs_Small_NeuralNet = [None for _ in range(len(N_TRAIN_ARCHS_LIST))]
         N_Epochs_Big_NeuralNet = [None for _ in range(len(N_TRAIN_ARCHS_LIST))]
     else:
-        pass
+        #########train set size###  50,  100, 200, 300, 400, 500, 600
+        N_Epochs_Small_NeuralNet = [300, 600, 700, 700, 700, 700, 700]
+        N_Epochs_Big_NeuralNet   = [250, 600, 600, 700, 800, 900, 1000]
+
 
 
 
     # Define data getter used for experiments with ML models
     data_getter_onehot = get_optimal_data_getter(OneHotOperation_Encoder())
+    data_getter_std = get_optimal_data_getter(StandartArchitecture_Encoder())
     
     ### Now lets define architectures to use together with their data
     arch_i_sampler = ArchiSampler(data_getter_onehot.get_amount_of_architectures())
@@ -182,7 +187,8 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     # On these we will be testing Spearman's rank corr coef
     test_archs_i = [arch_i_sampler.sample() for _ in range(N_TEST_ARCHS)]
     # And get their data for to be used for testing
-    test_inputs, test_real_valaccs = data_getter_onehot.get_testing_data_for_arch_indices(test_archs_i)
+    test_inputs_onehot, test_real_valaccs = data_getter_onehot.get_testing_data_for_arch_indices(test_archs_i)
+    test_inputs_std, _ = data_getter_std.get_testing_data_for_arch_indices(test_archs_i)
 
     # Now get training data archs_i
     train_archs_i = [arch_i_sampler.sample() for _ in range(N_TRAIN_ARCHS)]
@@ -194,24 +200,42 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     for i, N_TRAIN_ARCHS in enumerate(N_TRAIN_ARCHS_LIST):
         # transform train_archs_i into training inputs and targets (LC Extrapolation happens here)
         print(f'Extrapolating |train_set| = {N_TRAIN_ARCHS}')
-        train_inputs, train_targets = data_getter_onehot.get_training_data_by_arch_indices(train_archs_i[:N_TRAIN_ARCHS])
+        train_inputs_onehot, train_targets = data_getter_onehot.get_training_data_by_arch_indices(train_archs_i[:N_TRAIN_ARCHS])
+        train_inputs_std = np.array([data_getter_std.get_prediction_features_by_arch_index(train_arch_i) for train_arch_i in train_archs_i[:N_TRAIN_ARCHS]])
 
 
         # Calculate maximal theoreticaly achievable Spearman
         extrapolated_train_targets_spearman.append(
             stats.spearmanr(train_targets, train_real_valaccs[:N_TRAIN_ARCHS]).statistic
         )
-
-        print(f'Starting to train XGBoost with |train_set| = {N_TRAIN_ARCHS}')
-        XGBoost_predictor = train_XGBoost(train_inputs, train_targets)
+        ###
+        ### Get the Spearman of XGBoosts models
+        ###
+        # Starting with one hot encoding using one
+        print(f'Starting to train onehot XGBoost with |train_set| = {N_TRAIN_ARCHS}')
+        XGBoost_predictor = train_XGBoost(train_inputs_onehot, train_targets)
 
         # Get Spearman of its predictions on the test set
-        test_predictions = predict_XGBoost(XGBoost_predictor, test_inputs)
+        test_predictions = predict_XGBoost(XGBoost_predictor, test_inputs_onehot)
 
-        XGBoost___test_set_measured_spearman.append(
+        XGBoost_onehot___test_set_measured_spearman.append(
+            # Note that we always use entire testing set
+            stats.spearmanr(test_real_valaccs, test_predictions).statistic
+        )  
+
+        # Now moving onto the standart encoding usin one
+        print(f'Starting to train standart enc XGBoost with |train_set| = {N_TRAIN_ARCHS}')
+        XGBoost_predictor = train_XGBoost(train_inputs_std, train_targets)
+
+        # Get Spearman of its predictions on the test set
+        test_predictions = predict_XGBoost(XGBoost_predictor, test_inputs_std)
+
+        XGBoost_std___test_set_measured_spearman.append(
             # Note that we always use entire testing set
             stats.spearmanr(test_real_valaccs, test_predictions).statistic
         )
+
+
 
         ###
         ### Now do the same for the both neural network based predictor
@@ -219,14 +243,14 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
         # Starting with small one
         print(f'Starting to train small Neural Network with |train_set| = {N_TRAIN_ARCHS}')
         small_NN_model = train_NeuralNet(
-            train_inputs, 
+            train_inputs_onehot, 
             train_targets, 
             WIDTH=128, 
             LEN=5, 
             overfitting_plot_path=os.path.join(plots_path, 'small_NN'), 
             N_EPOCHS=N_Epochs_Small_NeuralNet[i]
         )
-        test_predictions = predict_NeuralNet(small_NN_model, test_inputs)
+        test_predictions = predict_NeuralNet(small_NN_model, test_inputs_onehot)
 
         NeuralNet_Small___test_set_measured_spearman.append(
             # Note that we always use entire testing set
@@ -235,14 +259,14 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
         # And Big one
         print(f'Starting to train big Neural Network with |train_set| = {N_TRAIN_ARCHS}')
         big_NN_model = train_NeuralNet(
-            train_inputs, 
+            train_inputs_onehot, 
             train_targets, 
             WIDTH=128*2, 
             LEN=5*2, 
             overfitting_plot_path=os.path.join(plots_path, 'big_NN'), 
             N_EPOCHS=N_Epochs_Big_NeuralNet[i]
         )
-        test_predictions = predict_NeuralNet(big_NN_model, test_inputs)
+        test_predictions = predict_NeuralNet(big_NN_model, test_inputs_onehot)
 
         NeuralNet_Big___test_set_measured_spearman.append(
             # Note that we always use entire testing set
@@ -254,7 +278,8 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
 
     ax.plot(N_TRAIN_ARCHS_LIST, extrapolated_train_targets_spearman, 'o--', label='Extrapolated targets of train set')
-    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost___test_set_measured_spearman, 'o--', label='XGBoost\'s predictions on test set')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_onehot___test_set_measured_spearman, 'o--', label='XGBoost\'s predictions on test set (One hot encoding)')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_std___test_set_measured_spearman, 'o--', label='XGBoost\'s predictions on test set (Standart encoding)')
     ax.plot(N_TRAIN_ARCHS_LIST, NeuralNet_Small___test_set_measured_spearman, 'o--', label='Small Neural Network\'s predictions on test set')
     ax.plot(N_TRAIN_ARCHS_LIST, NeuralNet_Big___test_set_measured_spearman, 'o--', label='Big Neural Network\'s predictions on test set')
 
@@ -273,8 +298,11 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
     print('extrapolated_train_targets_spearman')
     print(extrapolated_train_targets_spearman)
 
-    print('XGBoost___test_set_measured_spearman')
-    print(XGBoost___test_set_measured_spearman)
+    print('XGBoost_std___test_set_measured_spearman')
+    print(XGBoost_std___test_set_measured_spearman)    
+
+    print('XGBoost_onehot___test_set_measured_spearman')
+    print(XGBoost_onehot___test_set_measured_spearman)
     
     print('NeuralNet_Small___test_set_measured_spearman')
     print(NeuralNet_Small___test_set_measured_spearman)
@@ -295,7 +323,7 @@ def main(path_to_fig_dir: str):
         1000, 
         [50, 100, 200, 300, 400, 500, 600],
         os.path.join(path_to_fig_dir, 'ML_models_Spearman_progression'),
-        use_None_training_epochs=True
+        use_None_training_epochs=False # If False uses discovered training epochs for NNs, if True than runs 2k epochs in order to figure out the not-overfitting ones
     )
 
 if __name__ == '__main__':
