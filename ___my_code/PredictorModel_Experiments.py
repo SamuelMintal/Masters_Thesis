@@ -139,7 +139,7 @@ def predict_NeuralNet(neural_net: tf.keras.Model, predict_inputs: list[list[floa
 
 
 
-def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: list[int], plots_path: str, use_None_training_epochs: bool = False):
+def plot_Spearman_against_train_set_size_finetune(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: list[int], plots_path: str, use_None_training_epochs: bool = False):
     """
     Creates plot of Spearman against train set size as in model choice subchapter
 
@@ -314,17 +314,168 @@ def plot_Spearman_against_train_set_size(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: 
 
 
 
+##############################################################################################################################################################################
+##############################################################################################################################################################################
+##############################################################################################################################################################################
+
+
+
+def plot_Spearman_against_train_set_size_feats_influence(N_TEST_ARCHS: int, N_TRAIN_ARCHS_LIST: list[int], plots_path: str):
+    """
+    Compares influence of having/not having ZC proxies and extrapolated targets. Plots Spearmans agains train set size
+
+    Parameters
+    ----------
+    N_TEST_ARCHS : int
+        Number of architectures which will be used for testing trained predictor and
+        thus calculating its Spearman's rank correlation coeficient.
+    
+    N_TRAIN_ARCHS_LIST : list[int]
+        List of amount of architectures which will be used for training. Are disjoint with N_TEST_ARCHS
+
+    plots_path : str
+        Directory where to save the plot.
+    """
+    N_TRAIN_ARCHS = max(N_TRAIN_ARCHS_LIST)
+
+    # Initilize lists for collecting required data for plotting
+    # X axis is given by N_TRAIN_ARCHS_LIST
+    extrapolated_train_targets_spearman           = [] # Spearman rank corr coeff of Extrapolations
+    XGBoost_both___measured_spearman              = [] # Spearman rank corr coeff of predictions of XGBoost     using ZC and     using Extrapolated targets
+    XGBoost_only_Extrapolated___measured_spearman = [] # Spearman rank corr coeff of predictions of XGBoost NOT using ZC and     using Extrapolated targets
+    XGBoost_only_ZC___measured_spearman           = [] # Spearman rank corr coeff of predictions of XGBoost     using ZC and NOT using Extrapolated targets
+    XGBoost_nothing___measured_spearman           = [] # Spearman rank corr coeff of predictions of XGBoost NOT using ZC and NOT using Extrapolated targets
+
+
+
+    # Define data getter used for experiments with ML models
+    data_getter = get_optimal_data_getter(OneHotOperation_Encoder())
+    
+    ### Now lets define architectures to use together with their data
+    arch_i_sampler = ArchiSampler(data_getter.get_amount_of_architectures())
+
+    # Get testing architectures first, so they are always the same regardless of N_TRAIN_ARCHS used
+    # On these we will be testing Spearman's rank corr coef
+    test_archs_i = [arch_i_sampler.sample() for _ in range(N_TEST_ARCHS)]
+    # And get their data for to be used for testing both models using or not using ZC proxies
+    test_inputs_WITH_ZC, test_targets = data_getter.get_testing_data_for_arch_indices(test_archs_i)
+    test_inputs_NOT_ZC = data_getter.get_arch_encoding_by_archs_i(test_archs_i)
+
+    # Now get training data archs_i
+    train_archs_i = [arch_i_sampler.sample() for _ in range(N_TRAIN_ARCHS)]
+
+    # And also note real validation accuracies of train_archs_i for theroeticaly maximum Spearman calculation
+    train_real_valaccs = np.array([data_getter.get_real_val_acc_of_arch(arch_i) for arch_i in train_archs_i])
+
+    for i, N_TRAIN_ARCHS in enumerate(N_TRAIN_ARCHS_LIST):
+        print(f'Extrapolating |train_set| = {N_TRAIN_ARCHS}')
+        # Get Features with ZC proxies and Extrapolated targets
+        train_inputs_WITH_ZC, train_targets_EXTRAPOLATED = data_getter.get_training_data_by_arch_indices(train_archs_i[:N_TRAIN_ARCHS])
+
+        # Get Features WITHOUT ZC proxeis and REAL targets
+        train_targets_REAL = train_real_valaccs[:N_TRAIN_ARCHS]
+        train_inputs_NOT_ZC = data_getter.get_arch_encoding_by_archs_i(train_archs_i[:N_TRAIN_ARCHS])
+
+        ###
+        ### Note Spearman's of Extrapolated train targets
+        ###
+        extrapolated_train_targets_spearman.append(
+            stats.spearmanr(train_targets_EXTRAPOLATED, train_targets_REAL).statistic
+        )
+
+        ###
+        ### Get the Spearman of XGBoosts models
+        ###
+
+        # Starting with one using both ZC proxies and Extrapolated targets
+        XGBoost_pred = train_XGBoost(train_inputs_WITH_ZC, train_targets_EXTRAPOLATED)
+        test_predictions = predict_XGBoost(XGBoost_pred, test_inputs_WITH_ZC)
+
+        XGBoost_both___measured_spearman.append(
+            stats.spearmanr(test_predictions, test_targets).statistic
+        )
+
+        # Continue with one NOT using ZC proxies but using Extrapolated targets
+        XGBoost_pred = train_XGBoost(train_inputs_NOT_ZC, train_targets_EXTRAPOLATED)
+        test_predictions = predict_XGBoost(XGBoost_pred, test_inputs_NOT_ZC)
+
+        XGBoost_only_Extrapolated___measured_spearman.append(
+            stats.spearmanr(test_predictions, test_targets).statistic
+        )
+
+
+        # Continue with one using ZC proxies but NOT using Extrapolated targets
+        XGBoost_pred = train_XGBoost(train_inputs_WITH_ZC, train_targets_REAL)
+        test_predictions = predict_XGBoost(XGBoost_pred, test_inputs_WITH_ZC)
+
+        XGBoost_only_ZC___measured_spearman.append(
+            stats.spearmanr(test_predictions, test_targets).statistic
+        )
+
+        # End with one NOT using either ZC proxies or Extrapolated targets
+        XGBoost_pred = train_XGBoost(train_inputs_NOT_ZC, train_targets_REAL)
+        test_predictions = predict_XGBoost(XGBoost_pred, test_inputs_NOT_ZC)
+
+        XGBoost_nothing___measured_spearman.append(
+            stats.spearmanr(test_predictions, test_targets).statistic
+        )
+
+    
+    # And now plot the results
+    fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
+
+    ax.plot(N_TRAIN_ARCHS_LIST, extrapolated_train_targets_spearman, 'o--', label='Extrapolated targets of train set')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_both___measured_spearman, 'o--', label='XGBoost (using ZC proxies: Yes | Extrapolated train targets: Yes)')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_only_Extrapolated___measured_spearman, 'o--', label='XGBoost (using ZC proxies: No | Extrapolated train targets: Yes)')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_only_ZC___measured_spearman, 'o--', label='XGBoost (using ZC proxies: Yes | Extrapolated train targets: No)')
+    ax.plot(N_TRAIN_ARCHS_LIST, XGBoost_nothing___measured_spearman, 'o--', label='XGBoost (using ZC proxies: No | Extrapolated train targets: No)')
+
+    ax.set_ylabel('Spearman rank correlation coefficient')
+    ax.set_xlabel('Amount of architectures in the train set')
+    ax.legend()
+    ax.set_title(f'Dependence of the rank correlation on the size of the train set')
+
+
+    os.makedirs(plots_path, exist_ok=True)
+
+    fig.savefig(os.path.join(plots_path, f'Spearman_rank_corr_coef_vs_train_set_size_FEATS_INFLUENCE.png'), dpi=300)
+    ##########################################
+    ##########################################
+    ##########################################
+    with open(os.path.join(plots_path, 'log.txt'),"w+") as f:
+
+        f.write('extrapolated_train_targets_spearman\n')
+        f.write(str(extrapolated_train_targets_spearman) + '\n\n')
+
+        f.write('XGBoost_both___measured_spearman\n')
+        f.write(str(XGBoost_both___measured_spearman) + '\n\n')    
+
+        f.write('XGBoost_only_Extrapolated___measured_spearman\n')
+        f.write(str(XGBoost_only_Extrapolated___measured_spearman) + '\n\n')
+        
+        f.write('XGBoost_only_ZC___measured_spearman\n')
+        f.write(str(XGBoost_only_ZC___measured_spearman) + '\n\n')
+        
+        f.write('XGBoost_nothing___measured_spearman\n')
+        f.write(str(XGBoost_nothing___measured_spearman) + '\n\n')
         
 
 
 
 def main(path_to_fig_dir: str):
-    
-    plot_Spearman_against_train_set_size(
+    """
+    plot_Spearman_against_train_set_size_finetune(
         1000, 
         [50, 100, 200, 300, 400, 500, 600],
         os.path.join(path_to_fig_dir, 'ML_models_Spearman_progression'),
         use_None_training_epochs=False # If False uses discovered training epochs for NNs, if True than runs 2k epochs in order to figure out the not-overfitting ones
+    )
+    """
+
+    plot_Spearman_against_train_set_size_feats_influence(
+        1000,
+        [50, 100, 200, 300, 400, 500, 600],
+        os.path.join(path_to_fig_dir, 'feature_influence_Spearman_progression'),
     )
 
 if __name__ == '__main__':

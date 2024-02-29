@@ -115,6 +115,20 @@ class DataGetter:
         arch_features = [arch_data[feat] for feat in self.features_to_get]
 
         return np.array(arch_encoding + arch_features)
+    
+    def get_arch_encoding_by_archs_i(self, archs_i: list[int]) -> list[list[int]]:
+        """
+        Returns list of encodings of architectures from `archs_i`
+        """
+        res_encodings = [
+            np.array(
+                self.arch_encoder.convert_from_arch_string(self.data[arch_i]['arch_str'])
+            ) 
+            for arch_i in archs_i   
+        ]
+
+        return np.array(res_encodings)
+        
         
 
     def get_training_data_by_arch_indices(
