@@ -1,5 +1,6 @@
 from ast import literal_eval
 import os
+import sys
 
 import numpy as np
 import pandas as pd
@@ -94,10 +95,17 @@ def calc_spearman_rank_correlation_coef(data_real: dict[str, float], data_predic
 
 
 
-def plot_history(history: list[PopulationElement], POP_INIT_SIZE: int):
+def plot_histories(histories: dict[str, list[list[PopulationElement]]], POP_INIT_SIZE: int, plot_path: str = os.path.join('plot_thesis_figures', 'histories_plots')):
     """
-    plots run of the AE algo given it's history and initial size of the population.
+    plots runs of the AE algo given their histories and initial size of the population.
+
+    Parameters
+    ----------
+    histories : dict[str, list[list[PopulationElement]]]
+        Dictionary mapping setting's label name to the list of histories of runs.
     """
+    # Here we save data which are later saved into log.txt
+    log_data: dict[str, dict[str, list[float]]] = {}
 
     def get_best_val_acc_so_far(val_accs: list[float], POP_INIT_SIZE: int) -> list[float]:
         res = []
@@ -105,21 +113,83 @@ def plot_history(history: list[PopulationElement], POP_INIT_SIZE: int):
             res.append(max(val_accs[:i + 1]))
 
         # Aggregate initial population val accs into 1 
-        return [max(res[:POP_INIT_SIZE])] + res[POP_INIT_SIZE:] 
+        return np.array([max(res[:POP_INIT_SIZE])] + res[POP_INIT_SIZE:])
 
-
-    predicted_val_accs = [pop_elem.predicted_val_acc for pop_elem in history]
-    real_val_accs      = [pop_elem.real_val_acc      for pop_elem in history]
-
-    best_predicted_val_acc_so_far = get_best_val_acc_so_far(predicted_val_accs, POP_INIT_SIZE)
-    best_real_val_acc_so_far      = get_best_val_acc_so_far(real_val_accs, POP_INIT_SIZE)
+    plt_colors_cycle = plt.rcParams['axes.prop_cycle'].by_key()['color']
+    fig, ax = plt.subplots(layout='constrained', figsize=(10, 8))
     
-    evol_loops = [i for i in range(len(best_real_val_acc_so_far))]
+    # For each concrete setting
+    for i_setting, (setting_label, settings_histories) in enumerate(histories.items()):
 
-    plt.plot(evol_loops, best_real_val_acc_so_far, label='Real val acc')
-    plt.plot(evol_loops, best_predicted_val_acc_so_far, label='Predicted val acc')
-    plt.legend()
-    plt.show()
+        real_val_accs_history = []
+
+        for history in settings_histories:
+
+            real_val_accs = [pop_elem.real_val_acc for pop_elem in history]
+            real_val_accs_history.append(
+                get_best_val_acc_so_far(real_val_accs, POP_INIT_SIZE)
+            )
+
+        real_val_accs_history = np.array(real_val_accs_history)
+        median = np.quantile(real_val_accs_history, 0.5, axis=0)
+        q1 = np.quantile(real_val_accs_history, 0.25, axis=0)
+        q3 = np.quantile(real_val_accs_history, 0.75, axis=0)
+
+        evolution_loops = np.arange(real_val_accs_history.shape[1])
+
+        ax.plot(
+            evolution_loops, 
+            median, 
+            label=setting_label, 
+            color=plt_colors_cycle[i_setting % len(plt_colors_cycle)]
+        )
+
+        ax.fill_between(
+            evolution_loops,
+            q1,
+            q3,
+            color=plt_colors_cycle[i_setting % len(plt_colors_cycle)],
+            alpha=0.25
+        )
+
+        # Save these data for log
+        log_data[setting_label] = {
+            'median': median,
+            'q1': q1,
+            'q3': q3
+        }
+
+    ax.set_xlabel('Validation accuracy of the best architecture found so far [%]')
+    ax.set_ylabel('Evolution cycle')
+
+    ax.set_title(f'Evolution of the best architectures found during the run.')
+    ax.legend()
+
+    os.makedirs(plot_path, exist_ok=True)
+    fig.savefig(os.path.join(plot_path, f'Histories_of_{len(histories.keys())}_settings'), dpi=300)
+
+    ##########################################
+    ##########################################
+    ##########################################
+    with open(os.path.join(plot_path, 'log.txt'),"w+") as f:
+
+        np.set_printoptions(threshold=sys.maxsize)
+
+        for setting_name, setting_data in log_data.items():
+            f.write(setting_name + ':\n')
+
+            for data_name, data_points in setting_data.items():
+                f.write(data_name + ':\n')
+                f.write(str(data_points) + '\n')
+            
+            f.write('\n')
+
+        
+    
+
+
+    
+    
 
 
 def load_data(CLEAN_DATA_PATH: str = os.path.join('___my_code', '_clean_all_merged.csv')) -> dict[int,dict]:

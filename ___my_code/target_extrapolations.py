@@ -158,7 +158,7 @@ def prefit_avg_initialization_extrapolation(
         Time in seconds how long can each extrapolator fit. (20 seconds = 1 architecture's training epoch)
 
     get_extrapolators : Callable
-        Function returning extrapolators with default values accepting learning rate parameter
+        Function returning extrapolators with default values accepting learning rate parameter `lr`
 
     lrs : tuple[float, float]
         Tuple of two learning rates to be used for fitting.
