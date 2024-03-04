@@ -235,4 +235,4 @@ if __name__ == '__main__':
     np.random.seed(0)
     random.seed(0)
 
-    run_evolution_experiments(TRAIN_SET_SIZE=300, RUNS_PER_SETTING=10)
+    run_evolution_experiments(TRAIN_SET_SIZE=300, RUNS_PER_SETTING=30)

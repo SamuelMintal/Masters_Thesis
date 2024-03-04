@@ -159,8 +159,8 @@ def plot_histories(histories: dict[str, list[list[PopulationElement]]], POP_INIT
             'q3': q3
         }
 
-    ax.set_xlabel('Validation accuracy of the best architecture found so far [%]')
-    ax.set_ylabel('Evolution cycle')
+    ax.set_xlabel('Evolution cycle')
+    ax.set_ylabel('Validation accuracy of the best architecture found so far [%]')
 
     ax.set_title(f'Evolution of the best architectures found during the run.')
     ax.legend()
