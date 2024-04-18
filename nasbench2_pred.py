@@ -65,7 +65,7 @@ def parse_arguments():
     parser.add_argument('--dataload_info', type=int, default=1, help='number of batches to use for random dataload or number of samples per class for grasp dataload')
     parser.add_argument('--seed', type=int, default=42, help='pytorch manual seed')
     parser.add_argument('--write_freq', type=int, default=10, help='frequency of write to file')
-    parser.add_argument('--start', type=int, default=670, help='start index')
+    parser.add_argument('--start', type=int, default=0, help='start index')
     parser.add_argument('--end', type=int, default=0, help='end index')
     args = parser.parse_args()
 
